@@ -2,7 +2,7 @@
 
 [server]
 # Port to run the app on (change if 8501 is in use)
-port = 8502
+port = 8501
 
 # Host to bind to
 headless = true
