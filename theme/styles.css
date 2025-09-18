@@ -1,144 +1,112 @@
-/* Typography */
+/* --- Global & Typography --- */
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&display=swap');
+
 html, body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
-                 Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
-    color: #0f172a;
+    font-family: 'Sora', sans-serif;
 }
 
-/* Ensure icon fonts render correctly (Material Icons ligatures) */
-.material-icons, [class*="MuiIcon"], [class*="MuiSvgIcon"] {
-    font-family: 'Material Icons' !important;
-    font-weight: normal;
-    font-style: normal;
-}
-
-/* Base colors */
 :root {
-    --bg-soft: #F5F7FB;
+    --bg: #F7F7FF;
     --surface: #FFFFFF;
-    --border: #E5E7EB;
-    --text-primary: #0F172A;
-    --text-secondary: #475569;
-    --brand: #0F5EDD;          /* Primary brand blue */
-    --brand-dark: #0B4AAA;     /* Darker hover */
-    --accent: #38BDF8;         /* Accent cyan */
+    --surface-dark: #1A1A2E;
+    --text-primary: #1A1A2E;
+    --text-secondary: #94A3B8;
+    --brand: #4A4AFF;
+    --brand-light: #E6E6FF;
 }
 
-/* Page Background */
 .stApp {
-    background-color: var(--bg-soft);
+    background-color: var(--bg);
+    color: var(--text-primary);
 }
 
-/* Sidebar Styling */
+/* --- Sidebar --- */
 [data-testid="stSidebar"] {
     background-color: var(--surface);
-    border-right: 1px solid var(--border);
+    border-right: 1px solid #E5E7EB;
 }
 
-/* Sidebar brand container */
-.sidebar-brand {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 8px 6px 2px 6px;
-}
-.sidebar-title {
-    font-size: 1.05rem;
+/* --- Main Header --- */
+.main-header {
+    font-size: 2.5rem;
     font-weight: 700;
-    color: var(--text-primary);
-    letter-spacing: 0.2px;
+    padding: 1rem 0;
 }
-.sidebar-subtitle {
-    font-size: 0.8rem;
+
+/* --- Custom Metric Card --- */
+.metric-card {
+    background-color: var(--surface);
+    border-radius: 16px;
+    padding: 1.5rem;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    border: 1px solid #E5E7EB;
+}
+
+.metric-card-label {
+    font-size: 1rem;
+    font-weight: 600;
     color: var(--text-secondary);
 }
 
-/* Main Header */
-.main-header {
-    font-size: 2.2rem;
-    font-weight: 800;
+.metric-card-value {
+    font-size: 2.5rem;
+    font-weight: 700;
     color: var(--text-primary);
-    padding: 0.75rem 0 0.25rem 0;
 }
 
-/* Card Styling */
+.metric-card-delta {
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+/* --- Form & Card Styling --- */
 .card {
     background-color: var(--surface);
-    border-radius: 14px;
-    padding: 1.5rem;
-    box-shadow: 0 6px 14px rgba(2, 6, 23, 0.06);
-    transition: transform 0.25s ease, box-shadow 0.25s ease;
-    border: 1px solid var(--border);
-}
-
-.card:hover {
-    box-shadow: 0 10px 22px rgba(2, 6, 23, 0.1);
-    transform: translateY(-3px);
+    border-radius: 16px;
+    padding: 2rem;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    border: 1px solid #E5E7EB;
 }
 
 .card-header {
-    font-size: 1.15rem;
+    font-size: 1.5rem;
     font-weight: 700;
-    color: #111827;
-    margin-bottom: 0.5rem;
-    display: flex;
-    align-items: center;
+    margin-bottom: 1.5rem;
 }
 
-.card-icon {
-    font-size: 1.6rem;
-    margin-right: 0.6rem;
+/* --- Button & Tab Styling --- */
+div[data-testid*="stButton"] > button, [data-baseweb="tab"] {
+    border-radius: 999px !important; /* Pill shape */
+    padding: 8px 20px !important;
+    font-weight: 600 !important;
+    text-transform: none !important;
+    transition: all 0.2s ease-in-out !important;
+    border: none !important;
 }
 
-.card-subheader {
-    font-size: 0.95rem;
-    color: var(--text-secondary);
-    margin-bottom: 1rem;
+/* Inactive Tab/Button */
+div[data-testid*="stButton"] > button, [data-baseweb="tab"] {
+    background-color: #F1F5F9 !important;
+    color: var(--text-primary) !important;
 }
 
-/* Pill divider */
-.pill-divider {
-    height: 8px;
-    background: linear-gradient(90deg, var(--brand), var(--accent));
-    border-radius: 999px;
-    opacity: 0.18;
+/* Hover for Inactive */
+div[data-testid*="stButton"] > button:hover, [data-baseweb="tab"]:hover {
+    background-color: #E2E8F0 !important;
 }
 
-/* Metric Styling */
-[data-testid="stMetric"] {
-    background-color: #F8FAFC;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 0.9rem 1rem;
-}
-[data-testid="stMetricLabel"] {
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: var(--text-secondary);
+/* Active Tab/Button */
+[data-baseweb="tab"][aria-selected="true"], div[data-testid*="stButton"] > button:active {
+    background-color: var(--surface-dark) !important;
+    color: var(--surface) !important;
 }
 
-/* Button Styling */
-div[data-testid*="stButton"] > button {
-    background: linear-gradient(180deg, var(--brand), var(--brand-dark));
-    color: #ffffff;
-    border-radius: 10px;
-    padding: 0.7rem 1.2rem;
-    font-weight: 700;
-    border: 1px solid rgba(255,255,255,0.08);
-    transition: filter 0.2s, transform 0.05s;
-}
-div[data-testid*="stButton"] > button:hover {
-    filter: brightness(1.03);
-}
-div[data-testid*="stButton"] > button:active {
-    transform: translateY(1px);
-}
-div[data-testid*="stButton"] > button:focus {
-    outline: none;
-    box-shadow: 0 0 0 3px rgba(15, 94, 221, 0.25);
-}
-
-/* Radio navigation tweaks */
-section[data-testid="stSidebar"] .stRadio > label {
-    font-weight: 600;
+/* --- Responsive --- */
+@media (max-width: 768px) {
+    .main-header {
+        font-size: 1.8rem;
+    }
+    div[data-testid="stHorizontalBlock"] {
+        flex-direction: column;
+    }
 }

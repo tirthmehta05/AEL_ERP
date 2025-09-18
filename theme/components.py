@@ -14,7 +14,7 @@ def end_card() -> None:
 
 
 def render_sidebar_brand(logo_path: str, title: str, subtitle: str | None = None) -> None:
-    st.image(logo_path, use_container_width=True)
+    st.image(logo_path)
     st.markdown("<div class='sidebar-brand'>", unsafe_allow_html=True)
     st.markdown(f"<div class='sidebar-title'>{title}</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)

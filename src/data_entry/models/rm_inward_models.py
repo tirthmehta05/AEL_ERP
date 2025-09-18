@@ -1,12 +1,6 @@
-"""
-Raw Material Inward Issue Models
-Pydantic models for data validation and serialization
-"""
-
 from pydantic import BaseModel, Field, field_validator
-from datetime import date, datetime
-from typing import Optional, List
-
+from datetime import date
+from typing import List
 
 class RMInwardIssueRequest(BaseModel):
     """Request model for creating a new RM Inward Issue"""
@@ -16,17 +10,18 @@ class RMInwardIssueRequest(BaseModel):
     rm_type: str = Field(..., min_length=1, description="RM Type")
     coil_number: str = Field(..., min_length=1, description="Coil Number")
     grade: str = Field(..., min_length=1, description="Grade")
-    thickness: str = Field(..., min_length=1, description="Thickness")
-    width: str = Field(..., min_length=1, description="Width")
+    thk: float = Field(..., gt=0, description="Thk")
+    width: int = Field(..., gt=0, description="Width")
     coating: str = Field(..., min_length=1, description="Coating")
     coil_weight: float = Field(..., gt=0, description="Coil Weight")
+    po_number: str = Field(..., min_length=1, description="PO Number")
     coil_supplier: str = Field(..., min_length=1, description="Coil Supplier")
 
-    @field_validator("coil_weight")
+    @field_validator("coil_weight", "thk", "width")
     @classmethod
-    def validate_coil_weight(cls, v):
+    def validate_positive_numbers(cls, v):
         if v <= 0:
-            raise ValueError("Coil weight must be greater than 0")
+            raise ValueError("Value must be greater than 0")
         return v
 
     @field_validator(
@@ -34,9 +29,8 @@ class RMInwardIssueRequest(BaseModel):
         "rm_type",
         "coil_number",
         "grade",
-        "thickness",
-        "width",
         "coating",
+        "po_number",
         "coil_supplier",
     )
     @classmethod
@@ -54,45 +48,44 @@ class RMInwardIssueRecord(BaseModel):
     rm_type: str
     coil_number: str
     grade: str
-    thickness: str
-    width: str
+    thk: float
+    width: int
     coating: str
     coil_weight: float
+    po_number: str
     coil_supplier: str
-    created_at: Optional[str] = None
 
     def to_list(self) -> list:
         """Convert to list format for Google Sheets"""
         return [
             self.user_id,
-            self.rm_receipt_date.strftime("%Y-%m-%d"),
+            self.rm_receipt_date.strftime("%m/%d/%Y"),
             self.rm_type,
             self.coil_number,
             self.grade,
-            self.thickness,
+            self.thk,
             self.width,
             self.coating,
             self.coil_weight,
+            self.po_number,
             self.coil_supplier,
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),  # created_at
         ]
 
     def to_dict(self) -> dict:
         """Convert to dictionary format"""
         return {
             "User ID": self.user_id,
-            "RM Receipt Date": self.rm_receipt_date.strftime("%Y-%m-%d"),
+            "RM Receipt Date": self.rm_receipt_date.strftime("%m/%d/%Y"),
             "RM Type": self.rm_type,
             "Coil Number": self.coil_number,
             "Grade": self.grade,
-            "Thickness": self.thickness,
+            "Thk": self.thk,
             "Width": self.width,
             "Coating": self.coating,
             "Coil Weight": self.coil_weight,
+            "PO Number": self.po_number,
             "Coil Supplier": self.coil_supplier,
-            "Created At": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
-
 
 class DropdownData(BaseModel):
     """Model for dropdown data"""
@@ -101,7 +94,7 @@ class DropdownData(BaseModel):
     rm_types: List[str] = []
     coil_numbers: List[str] = []
     grades: List[str] = []
-    thicknesses: List[str] = []
+    thks: List[str] = []
     widths: List[str] = []
     coatings: List[str] = []
     suppliers: List[str] = []

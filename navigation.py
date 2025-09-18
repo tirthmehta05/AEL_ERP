@@ -8,10 +8,9 @@ def select_page() -> str:
         st.markdown("---")
         page = st.radio(
             "Navigation",
-            ("Home", "Data Entry", "Automation Workflows"),
+            ("🏠 Home", "📝 Data Entry", "💼 Job Work", "✂️ Slitting Plan", "⚙️ Automation Workflows"),
             label_visibility="hidden"
         )
         st.markdown("---")
         st.info("© 2025 AEL ERP. All rights reserved.")
     return page
-

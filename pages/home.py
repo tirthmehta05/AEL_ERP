@@ -1,120 +1,74 @@
-"""
-Home page for AEL ERP System
-This is the main dashboard/landing page of the application.
-"""
-
 import streamlit as st
-from datetime import datetime
 import pandas as pd
+import altair as alt
+from src.data_entry.service.rm_inward_service import RMInwardService
+from src.data_entry.service.rm_used_service import RMUsedService
 
+def render_metric_card(label, value, delta=None):
+    st.markdown(f"""
+    <div class="metric-card">
+        <div class="metric-card-label">{label}</div>
+        <div class="metric-card-value">{value}</div>
+        {f'<div class="metric-card-delta">{delta}</div>' if delta else ''}
+    </div>
+    """, unsafe_allow_html=True)
 
 def render():
-    """Render the home page."""
+    """Render the home page dashboard."""
+    inward_service = RMInwardService()
+    used_service = RMUsedService()
 
-    # Page header with logo
-    col1, col2 = st.columns([1, 3])
+    inward_records = inward_service.get_existing_records(limit=1000)
+    used_records = used_service.get_existing_records(limit=1000)
 
-    with col1:
-        st.image("assets/logofinal.png", width=100)
+    st.markdown("<h1 class='main-header'>Sales Overview</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='color: var(--text-secondary);'>Let's see the current statistic perfomance.</p>", unsafe_allow_html=True)
 
-    with col2:
-        st.title("AEL ERP System")
-        st.markdown("*Your comprehensive Enterprise Resource Planning solution*")
+    # --- Top Level Tabs ---
+    overview_tab, perf_tab, activity_tab, product_tab = st.tabs(["Overview", "Performance", "Activity", "Product"])
 
-    st.markdown("---")
+    with overview_tab:
+        # --- Metric Cards ---
+        total_inward = len(inward_records)
+        total_used = len(used_records)
+        unique_coils = pd.DataFrame(inward_records)['Coil Number'].nunique() if inward_records else 0
 
-    # Welcome section
-    col1, col2 = st.columns([2, 1])
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            render_metric_card("Overall Revenue", "$25,912", "+1.9% Than last month")
+        with col2:
+            render_metric_card("Total Insight", "129,521", "+1.2% Than last month")
+        with col3:
+            render_metric_card("Total Inward Records", f"{total_inward}")
 
-    with col1:
-        st.markdown("""
-        ### Welcome to AEL ERP
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # --- Sales Summary Chart ---
+        st.markdown("<h4>Sales Summary</h4>", unsafe_allow_html=True)
         
-        Your comprehensive Enterprise Resource Planning solution for managing:
-        - **Data Entry & Management**
-        - **Automation Workflows** 
-        - **Business Intelligence**
-        - **Process Optimization**
-        """)
+        # Sample data for the chart
+        chart_data = pd.DataFrame(
+            {
+                "Date": pd.to_datetime(["2025-08-01", "2025-08-02", "2025-08-03", "2025-08-04", "2025-08-05"]),
+                "Sales": [50, 60, 70, 80, 90],
+                "Insight": [40, 50, 60, 70, 80],
+            }
+        )
 
-    with col2:
-        # Current date and time
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        st.info(f"🕒 **Current Time**\n{current_time}")
+        chart = alt.Chart(chart_data).mark_area(
+            line={'color': '#4A4AFF'},
+            color=alt.Gradient(
+                gradient='linear',
+                stops=[alt.GradientStop(color='white', offset=0), alt.GradientStop(color='#E6E6FF', offset=1)],
+                x1=1, x2=1, y1=1, y2=0
+            )
+        ).encode(
+            x='Date:T',
+            y='Sales:Q'
+        ).properties(
+            height=300
+        )
 
-    st.markdown("---")
+        st.altair_chart(chart, use_container_width=True)
 
-    # Quick stats section
-    st.subheader("📊 Quick Overview")
-
-    col1, col2, col3, col4 = st.columns(4)
-
-    with col1:
-        st.metric(label="Total Records", value="1,234", delta="12")
-
-    with col2:
-        st.metric(label="Active Users", value="45", delta="3")
-
-    with col3:
-        st.metric(label="Processed Today", value="89", delta="7")
-
-    with col4:
-        st.metric(label="System Status", value="🟢 Online", delta=None)
-
-    st.markdown("---")
-
-    # Recent activity section
-    st.subheader("📈 Recent Activity")
-
-    # Sample data for recent activity
-    recent_data = pd.DataFrame(
-        {
-            "Time": ["09:30", "09:15", "09:00", "08:45", "08:30"],
-            "Action": [
-                "Data Entry Completed",
-                "Report Generated",
-                "User Login",
-                "Backup Created",
-                "System Update",
-            ],
-            "User": ["John Doe", "Jane Smith", "Admin", "System", "System"],
-            "Status": ["✅", "✅", "✅", "✅", "✅"],
-        }
-    )
-
-    st.dataframe(recent_data, use_container_width=True, hide_index=True)
-
-    st.markdown("---")
-
-    # Quick actions section
-    st.subheader("🚀 Quick Actions")
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        if st.button("📝 New Data Entry", use_container_width=True):
-            st.switch_page("pages/data_entry.py")
-
-    with col2:
-        if st.button("⚙️ Automation Setup", use_container_width=True):
-            st.switch_page("pages/automation.py")
-
-    with col3:
-        if st.button("📊 View Reports", use_container_width=True):
-            st.info("Reports feature coming soon!")
-
-    st.markdown("---")
-
-    # Footer
-    st.markdown(
-        """
-    <div style='text-align: center; color: #666; padding: 20px;'>
-        <p>© 2024 AEL ERP System | Version 1.0.0</p>
-    </div>
-    """,
-        unsafe_allow_html=True,
-    )
-
-
-if __name__ == "__main__":
-    render()
+    

@@ -3,7 +3,9 @@ import streamlit as st
 
 
 def apply_theme() -> None:
-    """Inject the global CSS theme into the Streamlit app."""
+    """Inject the global CSS theme and Material Icons into the Streamlit app."""
+    st.markdown('<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">', unsafe_allow_html=True)
+    
     theme_dir = Path(__file__).parent
     css_file = theme_dir / "styles.css"
     if css_file.exists():

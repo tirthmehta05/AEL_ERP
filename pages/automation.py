@@ -1,20 +1,12 @@
 import streamlit as st
 import time
-try:
-    from theme.components import render_main_header, begin_card, end_card
-except ModuleNotFoundError:
-    import sys
-    from pathlib import Path
-    sys.path.append(str(Path(__file__).resolve().parents[1]))
-    from theme.components import render_main_header, begin_card, end_card
-
 
 def render() -> None:
-    render_main_header("Automation Workflows")
-    # begin_card()
+    st.markdown("<h1 class='main-header'>Automation Workflows</h1>", unsafe_allow_html=True)
     
-    st.markdown("<div class='card-header'><span class='card-icon'>📄</span>Invoice Processor (OCR)</div>", unsafe_allow_html=True)
-    st.markdown("<div class='card-subheader'>Upload a purchase invoice (PDF or image) to automatically extract data and update your inventory and payables.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.markdown("<div class='card-header'><span class='material-icons'>receipt_long</span> Invoice Processor (OCR)</div>", unsafe_allow_html=True)
+    st.markdown("<p>Upload a purchase invoice (PDF or image) to automatically extract data and update your inventory and payables.</p>", unsafe_allow_html=True)
     
     uploaded_file = st.file_uploader("Choose an invoice file", type=['pdf', 'png', 'jpg'])
     if uploaded_file is not None:
@@ -31,4 +23,4 @@ def render() -> None:
             })
             st.button("Confirm and Save Data")
             
-    end_card()
+    st.markdown("</div>", unsafe_allow_html=True)
