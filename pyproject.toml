@@ -51,9 +51,7 @@ security = [
     "email-validator==2.2.0",
 ]
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+
 
 
 
