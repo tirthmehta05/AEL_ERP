@@ -1,50 +1,37 @@
 from typing import Optional
-from pathlib import Path
-from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import BaseModel, Field
+import streamlit as st
 
+class AppSettings(BaseModel):
+    dev_mode: bool = Field(default=False)
 
+class APISettings(BaseModel):
+    google_service_account_json: Optional[str] = Field(default=None)
+    google_sheets_id: Optional[str] = Field(default=None)
 
-ROOT_DIR = Path(__file__).resolve().parent
-ENV_FILE = ROOT_DIR / ".env"
+class StreamlitSettings(BaseModel):
+    server_port: int = Field(default=8501)
+    server_address: str = Field(default="0.0.0.0")
+    browser_gather_usage_stats: bool = Field(default=False)
 
-
-
-class AppSettings(BaseSettings):
-    dev_mode: bool = Field(default=False, env="DEV_MODE")
-
-class APISettings(BaseSettings):
-    google_service_account_json: Optional[str] = Field(default=None, env="GOOGLE_SERVICE_ACCOUNT_JSON")
-    google_sheets_id: Optional[str] = Field(default=None, env="GOOGLE_SHEETS_ID")
-
-
-
-
-
-
-
-
-class StreamlitSettings(BaseSettings):
-    server_port: int = Field(default=8501, env="STREAMLIT_SERVER_PORT")
-    server_address: str = Field(default="0.0.0.0", env="STREAMLIT_SERVER_ADDRESS")
-    browser_gather_usage_stats: bool = Field(default=False, env="STREAMLIT_BROWSER_GATHER_USAGE_STATS")
-
-
-
-
-
-class Settings(BaseSettings):
+class Settings(BaseModel):
     app: AppSettings
     api: APISettings
     streamlit: StreamlitSettings
+
+# Load settings from st.secrets
+def load_settings() -> Settings:
+    """Loads settings from Streamlit's secrets.
     
-    model_config = SettingsConfigDict(
-        env_file=ENV_FILE,
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        env_nested_delimiter="__",
-        extra="ignore",
+    This function reads the secrets from the .streamlit/secrets.toml file (for local development)
+    or from the secrets set in the Streamlit Cloud dashboard.
+    """
+    # The st.secrets object is a dict-like object. We can access the sections
+    # from the TOML file as attributes or keys.
+    return Settings(
+        app=AppSettings(**st.secrets.get("app", {})),
+        api=APISettings(**st.secrets.get("api", {})),
+        streamlit=StreamlitSettings(**st.secrets.get("streamlit", {})),
     )
 
-
-settings = Settings()
+settings = load_settings()
