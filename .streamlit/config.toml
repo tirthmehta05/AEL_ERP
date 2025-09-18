@@ -1,0 +1,61 @@
+# Streamlit Configuration - Essential Settings Only
+
+[server]
+# Port to run the app on (change if 8501 is in use)
+port = 8502
+
+# Host to bind to
+headless = true
+
+# Maximum upload size in MB
+maxUploadSize = 200
+
+# Enable websocket compression
+enableWebsocketCompression = true
+
+# Base path for the app
+baseUrlPath = ""
+
+[browser]
+# Server address to display in browser
+serverAddress = "localhost"
+
+# Whether to gather usage stats
+gatherUsageStats = false
+
+#[theme]
+# Primary color (hex color)
+#primaryColor = "#FF6B6B"
+
+# Background color (hex color)
+#backgroundColor = "#0E1117"
+
+# Secondary background color (hex color)
+#secondaryBackgroundColor = "#262730"
+
+# Text color (hex color)
+#textColor = "#FAFAFA"
+
+# Font family
+#font = "sans serif"
+
+[client]
+# Show error details
+showErrorDetails = true
+
+# Toolbar mode: "auto", "minimal", "viewer", "developer"
+toolbarMode = "auto"
+
+# Show sidebar navigation
+showSidebarNavigation = false
+
+[logger]
+# Log level: "error", "warning", "info", "debug"
+level = "info"
+
+[runner]
+# Fast reruns
+fastReruns = true
+
+# Magic enabled
+magicEnabled = true

@@ -1,0 +1,112 @@
+/* --- Global & Typography --- */
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&display=swap');
+
+html, body {
+    font-family: 'Sora', sans-serif;
+}
+
+:root {
+    --bg: #F7F7FF;
+    --surface: #FFFFFF;
+    --surface-dark: #1A1A2E;
+    --text-primary: #1A1A2E;
+    --text-secondary: #94A3B8;
+    --brand: #4A4AFF;
+    --brand-light: #E6E6FF;
+}
+
+.stApp {
+    background-color: var(--bg);
+    color: var(--text-primary);
+}
+
+/* --- Sidebar --- */
+[data-testid="stSidebar"] {
+    background-color: var(--surface);
+    border-right: 1px solid #E5E7EB;
+}
+
+/* --- Main Header --- */
+.main-header {
+    font-size: 2.5rem;
+    font-weight: 700;
+    padding: 1rem 0;
+}
+
+/* --- Custom Metric Card --- */
+.metric-card {
+    background-color: var(--surface);
+    border-radius: 16px;
+    padding: 1.5rem;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    border: 1px solid #E5E7EB;
+}
+
+.metric-card-label {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.metric-card-value {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.metric-card-delta {
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+/* --- Form & Card Styling --- */
+.card {
+    background-color: var(--surface);
+    border-radius: 16px;
+    padding: 2rem;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    border: 1px solid #E5E7EB;
+}
+
+.card-header {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin-bottom: 1.5rem;
+}
+
+/* --- Button & Tab Styling --- */
+div[data-testid*="stButton"] > button, [data-baseweb="tab"] {
+    border-radius: 999px !important; /* Pill shape */
+    padding: 8px 20px !important;
+    font-weight: 600 !important;
+    text-transform: none !important;
+    transition: all 0.2s ease-in-out !important;
+    border: none !important;
+}
+
+/* Inactive Tab/Button */
+div[data-testid*="stButton"] > button, [data-baseweb="tab"] {
+    background-color: #F1F5F9 !important;
+    color: var(--text-primary) !important;
+}
+
+/* Hover for Inactive */
+div[data-testid*="stButton"] > button:hover, [data-baseweb="tab"]:hover {
+    background-color: #E2E8F0 !important;
+}
+
+/* Active Tab/Button */
+[data-baseweb="tab"][aria-selected="true"], div[data-testid*="stButton"] > button:active {
+    background-color: var(--surface-dark) !important;
+    color: var(--surface) !important;
+}
+
+/* --- Responsive --- */
+@media (max-width: 768px) {
+    .main-header {
+        font-size: 1.8rem;
+    }
+    div[data-testid="stHorizontalBlock"] {
+        flex-direction: column;
+    }
+}
