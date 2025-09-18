@@ -109,4 +109,15 @@ div[data-testid*="stButton"] > button:hover, [data-baseweb="tab"]:hover {
     div[data-testid="stHorizontalBlock"] {
         flex-direction: column;
     }
+
+    /* Make sidebar navigation text darker on mobile */
+    [data-testid="stSidebar"] a {
+        color: var(--text-primary) !important;
+    }
+
+    /* Make form labels more visible on mobile */
+    [data-testid="stWidgetLabel"] label {
+        color: var(--text-primary) !important;
+        font-weight: 600 !important;
+    }
 }
