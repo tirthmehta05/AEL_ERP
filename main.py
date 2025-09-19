@@ -40,7 +40,7 @@ def run_app(user_info: dict):
 # --- App Initialization ---
 if DEV_MODE:
     # In development mode, simulate a user and run the app directly
-    mock_user = {"name": "Dev User"}
+    mock_user = {"name": "Dev User", "username": "devuser"}
     run_app(mock_user)
 else:
     # In production, use MSAL authentication

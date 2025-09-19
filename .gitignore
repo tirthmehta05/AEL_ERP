@@ -65,6 +65,7 @@ data/temp/
 *.xlsx
 *.csv
 *.json
+*.pdf
 
 # Streamlit
 .streamlit/secrets.toml

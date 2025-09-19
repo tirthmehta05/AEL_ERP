@@ -26,6 +26,7 @@ def render_raw_material_inward_issue_form() -> None:
         st.session_state.width = None
         st.session_state.coating = None
         st.session_state.supplier = None
+        st.session_state.coil_location = "Amba" # Reset to default
         st.session_state.form_submitted_successfully = False
 
     @st.cache_resource
@@ -52,6 +53,8 @@ def render_raw_material_inward_issue_form() -> None:
             st.selectbox("Width (mm)", options=dropdowns.widths, index=None, placeholder="Select or type a Width", accept_new_options=True, key="width")
             st.selectbox("Coating", options=dropdowns.coatings, index=None, placeholder="Select or type a Coating", accept_new_options=True, key="coating")
             st.selectbox("Coil Supplier", options=dropdowns.suppliers, index=None, placeholder="Select or type a Supplier", accept_new_options=True, key="supplier")
+
+        st.selectbox("Coil Location", options=["Amba", "Tenth"], index=0, key="coil_location")
 
         submitted = st.form_submit_button("Submit Inward Entry")
         
@@ -106,6 +109,7 @@ def render_raw_material_inward_issue_form() -> None:
                         "coil_weight": st.session_state.coil_weight,
                         "po_number": st.session_state.po_number or "",
                         "coil_supplier": st.session_state.supplier,
+                        "coil_location": st.session_state.coil_location,
                     }
                     with st.spinner("Processing your request..."):
                         request_obj = RMInwardIssueRequest(**request_data)
