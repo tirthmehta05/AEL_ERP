@@ -16,6 +16,7 @@ class RMInwardIssueRequest(BaseModel):
     coil_weight: float = Field(..., gt=0, description="Coil Weight")
     po_number: str = Field(..., min_length=1, description="PO Number")
     coil_supplier: str = Field(..., min_length=1, description="Coil Supplier")
+    coil_location: str = Field(..., description="Coil Location")
 
     @field_validator("coil_weight", "thk", "width")
     @classmethod
@@ -32,6 +33,7 @@ class RMInwardIssueRequest(BaseModel):
         "coating",
         "po_number",
         "coil_supplier",
+        "coil_location",
     )
     @classmethod
     def validate_string_fields(cls, v):
@@ -54,6 +56,7 @@ class RMInwardIssueRecord(BaseModel):
     coil_weight: float
     po_number: str
     coil_supplier: str
+    coil_location: str
 
     def to_list(self) -> list:
         """Convert to list format for Google Sheets"""
@@ -69,6 +72,13 @@ class RMInwardIssueRecord(BaseModel):
             self.coil_weight,
             self.po_number,
             self.coil_supplier,
+            None,  # RM Issue Date
+            None,  # RM Issue Qty
+            None,  # Material Issue Line
+            None,  # Material in stock
+            None,  # RM Age
+            None,  # Card No
+            self.coil_location, # Coil Location
         ]
 
     def to_dict(self) -> dict:
@@ -85,6 +95,7 @@ class RMInwardIssueRecord(BaseModel):
             "Coil Weight": self.coil_weight,
             "PO Number": self.po_number,
             "Coil Supplier": self.coil_supplier,
+            "Coil Location": self.coil_location,
         }
 
 class DropdownData(BaseModel):
