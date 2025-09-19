@@ -36,7 +36,7 @@ def render_raw_material_used_form() -> None:
         col1, col2 = st.columns(2)
         with col1:
             st.date_input("Date", key="rm_used_date")
-            st.text_input("Card No", key="card_no")
+            st.selectbox("Card No", options=dropdowns.job_cards, index=None, placeholder="Select a Job Card", key="card_no")
             st.selectbox("Coil No", options=dropdowns.coil_nos, index=None, placeholder="Select a Coil No", key="coil_no")
 
         with col2:

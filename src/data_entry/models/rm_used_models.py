@@ -32,6 +32,7 @@ class RMUsedRecord(BaseModel):
         ]
 
 class DropdownData(BaseModel):
+    job_cards: List[str] = Field(default_factory=list)
     coil_nos: List[str] = Field(default_factory=list)
     machines: List[str] = Field(default_factory=list)
     remarks: List[str] = Field(default_factory=list)
