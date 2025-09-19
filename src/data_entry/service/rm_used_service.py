@@ -74,11 +74,19 @@ class RMUsedService:
                 logging.error(f"Cannot connect to spreadsheet: {self.spreadsheet_id}")
                 return DropdownData()
 
-            # Load data from both sheets
+            # Load data from all sheets
             used_df = self._get_all_dropdown_data()
             inward_df = self._get_inward_data()
+            sales_order_df = self.google_service.get_worksheet_data(
+                self.spreadsheet_id, "Sales Order", header_row=1
+            )
+
+            job_cards = self._get_options_from_dataframe(sales_order_df, "Job Card")
+            if "Stock" not in job_cards:
+                job_cards.insert(0, "Stock")
 
             dropdown_data = DropdownData(
+                job_cards=job_cards,
                 coil_nos=self._get_options_from_dataframe(inward_df, "Coil Number"),
                 machines=self._get_options_from_dataframe(used_df, "Machine"),
                 remarks=self._get_options_from_dataframe(used_df, "Remarks"),
