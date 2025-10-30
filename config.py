@@ -14,10 +14,14 @@ class StreamlitSettings(BaseModel):
     server_address: str = Field(default="0.0.0.0")
     browser_gather_usage_stats: bool = Field(default=False)
 
+class ConstantsSettings(BaseModel):
+    steel_density: float = Field(default=7.41) # Default to a common value
+
 class Settings(BaseModel):
     app: AppSettings
     api: APISettings
     streamlit: StreamlitSettings
+    constants: ConstantsSettings
 
 # Load settings from st.secrets
 def load_settings() -> Settings:
@@ -32,6 +36,7 @@ def load_settings() -> Settings:
         app=AppSettings(**st.secrets.get("app", {})),
         api=APISettings(**st.secrets.get("api", {})),
         streamlit=StreamlitSettings(**st.secrets.get("streamlit", {})),
+        constants=ConstantsSettings(**st.secrets.get("constants", {})),
     )
 
 settings = load_settings()

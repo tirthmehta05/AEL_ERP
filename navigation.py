@@ -8,7 +8,7 @@ def select_page() -> str:
         st.markdown("---")
         page = st.radio(
             "Navigation",
-            ("🏠 Home", "📝 Data Entry", "💼 Job Work", "✂️ Slitting Plan", "⚙️ Automation Workflows"),
+            ("🏠 Home", "📝 Data Entry", "✂️ Slitting Plan", "📄 PDF Generator", "⚙️ Automation Workflows", "📊 Forms"),
             label_visibility="hidden"
         )
         st.markdown("---")

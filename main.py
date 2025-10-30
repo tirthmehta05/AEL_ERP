@@ -1,7 +1,7 @@
 import streamlit as st
 from theme import apply_theme
 from navigation import select_page
-from pages import home, data_entry, automation, job_work, slitting_plan
+from pages import home, data_entry, automation, slitting_plan, forms, pdf_generator
 from streamlit_msal import Msal
 from config import settings
 
@@ -29,12 +29,15 @@ def run_app(user_info: dict):
         home.render()
     elif page == "📝 Data Entry":
         data_entry.render()
-    elif page == "💼 Job Work":
-        job_work.render()
+
     elif page == "✂️ Slitting Plan":
         slitting_plan.render()
+    elif page == "📄 PDF Generator":
+        pdf_generator.render_pdf_generator_page()
     elif page == "⚙️ Automation Workflows":
         automation.render()
+    elif page == "📊 Forms":
+        forms.page()
 
 
 # --- App Initialization ---
