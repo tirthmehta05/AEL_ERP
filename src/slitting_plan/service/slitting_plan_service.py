@@ -42,7 +42,7 @@ class SlittingPlanService:
             thickness=("Thk", "first"),
             width=("Width", "first"),
             coating=("Coating", "first"),
-            coil_location=("Coil Location", "first"),
+            coil_location=("Location", "first"),
             coil_supplier=("Coil Supplier", "first"),
             rm_type=("RM Type", "first"),
         ).reset_index()
