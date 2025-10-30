@@ -146,6 +146,19 @@ class RMUsedService:
             logger.error(f"Error getting existing records: {str(e)}")
             return []
 
+    def get_coils_for_job_card(self, job_card_number: str) -> List[dict]:
+        """Fetches the coils assigned to a specific job card."""
+        try:
+            df = self.google_service.get_worksheet_data(self.spreadsheet_id, "Raw Material Used", header_row=2)
+            if df.empty or 'Card No' not in df.columns:
+                return []
+
+            coils_df = df[df['Card No'] == job_card_number]
+            return coils_df.to_dict('records')
+        except Exception as e:
+            logger.error(f"Error fetching coils for job card {job_card_number}: {str(e)}")
+            return []
+
     def create_rm_used(self, request: RMUsedRequest) -> bool:
         """Create a new RM Used record"""
         try:

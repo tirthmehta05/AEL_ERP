@@ -2,6 +2,7 @@ from typing import List
 import pandas as pd
 from src.slitting_plan.service.slitting_plan_service import SlittingPlanService
 from src.data_entry.service.sales_order_service import SalesOrderService
+from src.data_entry.service.rm_used_service import RMUsedService
 from fpdf import FPDF
 import qrcode
 import io
@@ -11,6 +12,7 @@ class PDFService:
     def __init__(self):
         self.slitting_service = SlittingPlanService()
         self.sales_order_service = SalesOrderService()
+        self.rm_used_service = RMUsedService()
 
     def get_sales_orders_for_job_card(self, start_date=None, end_date=None):
         return self.sales_order_service.get_sales_orders_for_job_card(start_date, end_date, include_designs=True)
@@ -236,6 +238,18 @@ class PDFService:
             circle_x = plate_x + plate_width / 2
             circle_y = plate_y + plate_height / 2
             pdf.ellipse(circle_x - hole_radius, circle_y - hole_radius, hole_radius * 2, hole_radius * 2, 'F')
+        elif str.lower(hole_type) == "3-hole":
+            circle_y = plate_y + plate_height / 2
+            positions = [0.25, 0.5, 0.75]
+            for pos in positions:
+                circle_x = plate_x + plate_width * pos
+                pdf.ellipse(circle_x - hole_radius, circle_y - hole_radius, hole_radius * 2, hole_radius * 2, 'F')
+        elif str.lower(hole_type) == "5-hole":
+            circle_y = plate_y + plate_height / 2
+            positions = [0.15, 0.325, 0.5, 0.675, 0.85]
+            for pos in positions:
+                circle_x = plate_x + plate_width * pos
+                pdf.ellipse(circle_x - hole_radius, circle_y - hole_radius, hole_radius * 2, hole_radius * 2, 'F')
 
     def _draw_items_table_header(self, pdf: FPDF, job_card_data: dict):
         pdf.set_font("Helvetica", 'B', 10)
@@ -364,6 +378,23 @@ class PDFService:
         pdf.set_font("Helvetica", 'B', 10)
         pdf.cell(160, 8, "Total Weight", border=1, align='R')
         pdf.cell(30, 8, f"{total_weight:.3f}", border=1, align='R', ln=True)
+
+        # Assigned Coils Table
+        pdf.ln(10)
+        pdf.set_font("Helvetica", 'B', 10)
+        pdf.cell(0, 8, "Assigned Coils:", ln=True)
+        pdf.set_fill_color(230, 230, 230)
+        pdf.cell(100, 8, "Coil Number", border=1, fill=True, align='C')
+        pdf.cell(90, 8, "Weight Used (kg)", border=1, fill=True, align='C', ln=True)
+
+        pdf.set_font("Helvetica", '', 10)
+        assigned_coils = self.rm_used_service.get_coils_for_job_card(job_card_data['job_card_number'])
+        if assigned_coils:
+            for coil in assigned_coils:
+                pdf.cell(100, 8, str(coil.get('Coil No', 'N/A')), border=1, align='C')
+                pdf.cell(90, 8, str(coil.get('Weight', 'N/A')), border=1, align='R', ln=True)
+        else:
+            pdf.cell(190, 8, "Pending Coil Assignment", border=1, align='C', ln=True)
 
     def generate_job_card_pdf(self, selected_job_cards: List[dict]) -> bytes:
         """Generates a PDF for the selected job cards.""" 

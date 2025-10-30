@@ -33,7 +33,7 @@ class SalesOrderRequest(BaseModel):
     rate_per_kg: float
     header_core_stack: Optional[float] = None
     designs: List[DesignDetail]
-    assigned_coils: List[AssignedCoil]
+    assigned_coils: Optional[List[AssignedCoil]] = None
 
 class SalesOrderDropdownData(BaseModel):
     """Model for dropdown data for the Sales Order form."""

@@ -51,24 +51,25 @@ class SalesOrderService:
     def save_sales_order(self, request: SalesOrderRequest) -> bool:
         """Saves a new sales order entry to the 'Sales Order-JC' sheet and the 'Sales Order' sheet."""
         try:
-            # This method no longer generates the JC number, it receives it.
-            # The UI will generate it for display, but the service will handle it for saving.
-            # For consistency, we will re-assign it here to ensure it's unique.
             request.job_card_number = self.generate_job_card_number(request.party_name)
 
             worksheet_name_jc = "Sales Order-JC"
             headers_jc = [
                 "order_date", "po_no", "party_name", "delivery_date", "job_card_number",
-                "hole_size", "number_of_cores", "rate_per_kg", "header_core_stack", "designs_json"
+                "hole_size", "number_of_cores", "rate_per_kg", "header_core_stack", "designs_json",
+                "status"
             ]
             self.google_service.ensure_worksheet_with_headers(self.spreadsheet_id, worksheet_name_jc, headers_jc)
 
             designs_json = json.dumps([d.model_dump() for d in request.designs])
+            
+            status = "Coils Assigned" if request.assigned_coils else "Pending Coil Assignment"
+
             data_row_jc = [
                 request.order_date.strftime("%Y-%m-%d"), request.po_no, request.party_name,
                 request.delivery_date.strftime("%Y-%m-%d"), request.job_card_number,
                 request.hole_size, request.number_of_cores, request.rate_per_kg,
-                request.header_core_stack, designs_json
+                request.header_core_stack, designs_json, status
             ]
 
             success_jc = self.google_service.append_data(self.spreadsheet_id, worksheet_name_jc, [data_row_jc])
@@ -93,17 +94,18 @@ class SalesOrderService:
                 logger.error(f"Failed to save design details for SO {request.job_card_number}.")
                 return False
 
-            # Third, create Raw Material Used entries for each assigned coil
-            for assigned_coil in request.assigned_coils:
-                rm_used_request = RMUsedRequest(
-                    rm_used_date=datetime.now().date(),
-                    card_no=request.job_card_number, # Use the JC number as the card number
-                    coil_no=assigned_coil.coil_no,
-                    weight=assigned_coil.weight_used,
-                    machine='', # No machine specified for this workflow
-                    remarks='Slitting'
-                )
-                self.rm_used_service.create_rm_used(rm_used_request)
+            # Conditionally create Raw Material Used entries
+            if request.assigned_coils:
+                for assigned_coil in request.assigned_coils:
+                    rm_used_request = RMUsedRequest(
+                        rm_used_date=datetime.now().date(),
+                        card_no=request.job_card_number,
+                        coil_no=assigned_coil.coil_no,
+                        weight=assigned_coil.weight_used,
+                        machine='',
+                        remarks='Slitting'
+                    )
+                    self.rm_used_service.create_rm_used(rm_used_request)
 
             logger.info(f"Successfully saved Sales Order {request.job_card_number} and all related entries.")
             return True
@@ -135,3 +137,48 @@ class SalesOrderService:
         except Exception as e:
             logger.error(f"Error fetching sales orders for job card: {str(e)}")
             return []
+
+    def get_pending_sales_orders(self) -> List[dict]:
+        """Fetches sales orders with 'Pending Coil Assignment' status."""
+        try:
+            df = self.google_service.get_worksheet_data(self.spreadsheet_id, "Sales Order-JC", header_row=1)
+            if df.empty or 'status' not in df.columns:
+                return []
+
+            pending_df = df[df['status'] == 'Pending Coil Assignment']
+            return pending_df.to_dict('records')
+        except Exception as e:
+            logger.error(f"Error fetching pending sales orders: {str(e)}")
+            return []
+
+    def assign_coils_to_sales_order(self, job_card_number: str, assigned_coils: List) -> bool:
+        """Assigns coils to an existing sales order and updates its status."""
+        try:
+            # 1. Update the status in the 'Sales Order-JC' sheet
+            worksheet = self.google_service.client.open_by_key(self.spreadsheet_id).worksheet("Sales Order-JC")
+            cell = worksheet.find(job_card_number, in_column=5) # job_card_number is in the 5th column
+            if not cell:
+                logger.error(f"Sales Order with Job Card No. {job_card_number} not found.")
+                return False
+            
+            # Assuming 'status' is the 11th column
+            worksheet.update_cell(cell.row, 11, "Coils Assigned")
+
+            # 2. Create Raw Material Used entries
+            today = datetime.now().date()
+            for coil in assigned_coils:
+                rm_used_request = RMUsedRequest(
+                    rm_used_date=today,
+                    card_no=job_card_number,
+                    coil_no=coil.coil_no,
+                    weight=coil.weight_used,
+                    machine='',
+                    remarks='Slitting'
+                )
+                self.rm_used_service.create_rm_used(rm_used_request)
+
+            logger.info(f"Coils assigned and status updated for Sales Order {job_card_number}.")
+            return True
+        except Exception as e:
+            logger.error(f"Error assigning coils to sales order {job_card_number}: {str(e)}")
+            return False
