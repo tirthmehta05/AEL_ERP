@@ -1,97 +1,78 @@
 import pytest
 from unittest.mock import MagicMock, patch
 import pandas as pd
-from datetime import datetime, date
-import json
 
-# Import the service dynamically within the fixture
+# Patch dependencies before importing the service
+with patch('src.slitting_plan.repository.slitting_plan_repository.SlittingPlanRepository', MagicMock()), \
+     patch('src.data_entry.service.rm_used_service.RMUsedService', MagicMock()):
+    from src.slitting_plan.service.slitting_plan_service import SlittingPlanService
 
 @pytest.fixture
-def slitting_service():
-    """Pytest fixture that provides a SlittingPlanService with a mocked google_drive_service."""
-    # Patch the global `google_drive_service` object within the slitting_plan_service module
-    with patch('src.slitting_plan.service.slitting_plan_service.google_drive_service') as mock_gdrive_service, \
-         patch('config.settings', MagicMock()):
-        from src.slitting_plan.service.slitting_plan_service import SlittingPlanService
-        service = SlittingPlanService()
-        # The instance now holds a reference to our mock
-        yield service
+def slitting_plan_service():
+    """Pytest fixture to provide a SlittingPlanService instance with mocked dependencies."""
+    service = SlittingPlanService()
+    return service
 
-def test_get_available_coils(slitting_service):
-    """Test the logic for calculating available coil weight."""
-    inward_df = pd.DataFrame({
-        'Coil Number': ['C1', 'C2'], 'Coil Weight': [1000, 2000],
-        'Grade': ['A', 'B'], 'Thk': [0.5, 0.6], 'Width': [1000, 1200],
-        'Coating': ['C1', 'C2'], 'Coil Location': ['L1', 'L2'], 'Coil Supplier': ['S1', 'S2']
-    })
-    used_df = pd.DataFrame({'Coil No': ['C1'], 'Weight': [300]})
-    slitting_service.google_service.get_worksheet_data.side_effect = [inward_df, used_df]
-
-    result_df = slitting_service.get_available_coils()
-
-    assert len(result_df) == 2
-    assert result_df[result_df['Coil Number'] == 'C1']['available_weight'].iloc[0] == 700
-    assert result_df[result_df['Coil Number'] == 'C2']['available_weight'].iloc[0] == 2000
-
-def test_get_next_plan_id(slitting_service):
-    """Test the generation of the next sequential plan ID."""
-    today_str = datetime.now().strftime("%y%m%d")
-    prefix = f"SP-1250-{today_str}-"
-    mock_df = pd.DataFrame({'PlanID': [f'{prefix}01', f'{prefix}02']})
-    slitting_service.google_service.get_worksheet_data.return_value = mock_df
-
-    next_id = slitting_service.get_next_plan_id(1250)
-    assert next_id == f"{prefix}03"
-
-def test_save_plan(slitting_service):
-    """Test that save_plan calls the correct google service methods."""
-    slitting_service.get_next_plan_id = MagicMock(return_value="SP-TEST-01")
-    plan_data = {
-        'coil_width': 1250, 'total_coil_weight': 5000, 'scrap_mm': 10, 'scrap_weight': 50,
-        'selected_coils': [{'Coil Number': 'C1'}], 'slit_details': [{'Size': 500}]
+def test_calculate_slitting_plan_success(slitting_plan_service):
+    """Test the successful calculation of a slitting plan."""
+    # --- Arrange ---
+    selected_coils_data = {
+        'Coil Number': ['COIL001'],
+        'width': [1000],
+        'available_weight': [5000]
     }
+    selected_coils_df = pd.DataFrame(selected_coils_data)
 
-    result_id = slitting_service.save_plan(plan_data)
+    edited_df_data = {
+        'Size': [200, 300],
+        'No. of Slits': [2, 1]
+    }
+    edited_df = pd.DataFrame(edited_df_data)
 
-    assert result_id == "SP-TEST-01"
-    slitting_service.google_service.ensure_worksheet_with_headers.assert_called_once()
-    slitting_service.google_service.append_data.assert_called_once()
+    # --- Act ---
+    result = slitting_plan_service.calculate_slitting_plan(selected_coils_df, edited_df)
 
-def test_get_printable_plans(slitting_service):
-    """Test that it correctly filters for printable plans."""
-    mock_df = pd.DataFrame({'PlanID': ['P1', 'P2', 'P3'], 'Status': ['Created', 'In Process', 'Completed']})
-    slitting_service.google_service.get_worksheet_data.return_value = mock_df
+    # --- Assert ---
+    assert len(result['errors']) == 0
+    
+    summary = result['summary']
+    assert summary['total_slits'] == 3
+    assert summary['total_mm_used'] == 700
+    assert summary['scrap_per_coil_mm'] == 300
+    assert pytest.approx(summary['total_weight_kg'], 0.01) == 3500
+    assert pytest.approx(summary['scrap_weight_kg'], 0.01) == 1500
 
-    result = slitting_service.get_printable_plans()
-    assert len(result) == 2
-    assert "P3" not in result
+    calculated_plan_df = result['calculated_plan']
+    assert 'Weight in Kg' in calculated_plan_df.columns
+    assert pytest.approx(calculated_plan_df.loc[0, 'Weight in Kg'], 0.01) == 2000
+    assert pytest.approx(calculated_plan_df.loc[1, 'Weight in Kg'], 0.01) == 1500
 
-def test_get_saved_plan_details(slitting_service):
-    """Test that it correctly parses a saved plan from a dataframe row."""
-    raw_materials = [{'Coil Number': 'C1'}]
-    slit_details = [{'Size': 500}]
-    mock_df = pd.DataFrame({
-        'PlanID': ['P1'], 'Date': ['2025-10-28'], 'Status': ['Created'],
-        'CoilWidth': [1250], 'TotalCoilWeight': [5000], 'ScrapMM': [10], 'ScrapWeight': [50],
-        'RawMaterialsJSON': [json.dumps(raw_materials)], 'SlitDetailsJSON': [json.dumps(slit_details)]
-    })
-    slitting_service.google_service.get_worksheet_data.return_value = mock_df
+def test_calculate_slitting_plan_slit_too_wide(slitting_plan_service):
+    """Test validation error when a slit size is wider than the coil."""
+    # --- Arrange ---
+    selected_coils_data = {'width': [1000], 'available_weight': [1000]}
+    selected_coils_df = pd.DataFrame(selected_coils_data)
 
-    result = slitting_service.get_saved_plan_details('P1')
+    edited_df_data = {'Size': [1200], 'No. of Slits': [1]}
+    edited_df = pd.DataFrame(edited_df_data)
 
-    assert result['plan_id'] == 'P1'
-    assert result['raw_materials'][0]['Coil Number'] == 'C1'
+    # --- Act ---
+    result = slitting_plan_service.calculate_slitting_plan(selected_coils_df, edited_df)
 
-def test_update_plan_status(slitting_service):
-    """Test that the status of a plan is updated correctly."""
-    mock_worksheet = MagicMock()
-    mock_cell = MagicMock()
-    mock_cell.row = 5
-    slitting_service.google_service.client.open_by_key.return_value.worksheet.return_value = mock_worksheet
-    mock_worksheet.find.return_value = mock_cell
+    # --- Assert ---
+    assert "Error: Requested slit size of 1200.0mm is wider than the selected coil width (1000)." in result['errors']
 
-    result = slitting_service.update_plan_status('P1', 'In Process')
+def test_calculate_slitting_plan_total_width_exceeded(slitting_plan_service):
+    """Test validation error when total slit width exceeds coil width."""
+    # --- Arrange ---
+    selected_coils_data = {'width': [1000], 'available_weight': [5000]}
+    selected_coils_df = pd.DataFrame(selected_coils_data)
 
-    mock_worksheet.find.assert_called_with('P1', in_column=1)
-    mock_worksheet.update_cell.assert_called_with(5, 3, 'In Process')
-    assert result is True
+    edited_df_data = {'Size': [500, 600], 'No. of Slits': [1, 1]}
+    edited_df = pd.DataFrame(edited_df_data)
+
+    # --- Act ---
+    result = slitting_plan_service.calculate_slitting_plan(selected_coils_df, edited_df)
+
+    # --- Assert ---
+    assert "Error: Total planned width (1100.0mm) exceeds the width of a single coil (1000)." in result['errors']

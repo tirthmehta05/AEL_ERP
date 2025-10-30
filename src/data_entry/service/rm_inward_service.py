@@ -68,7 +68,6 @@ class RMInwardService:
                 return DropdownData()
 
             dropdown_data = DropdownData(
-                user_ids=self._get_options_from_dataframe("User ID"),
                 rm_types=self._get_options_from_dataframe("RM Type"),
                 coil_numbers=self._get_options_from_dataframe("Coil Number"),
                 grades=self._get_options_from_dataframe("Grade"),
@@ -336,7 +335,7 @@ class RMInwardService:
 
         for index, row in df.iterrows():
             try:
-                request_data = {"user_id": options.get("user_email", "")}
+                request_data = {}
                 for field_key, excel_col in mapping.items():
                     if (
                         excel_col

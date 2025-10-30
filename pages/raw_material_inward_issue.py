@@ -17,10 +17,7 @@ def render_raw_material_inward_issue_form() -> None:
     if 'rm_inward_entries' not in st.session_state:
         st.session_state.rm_inward_entries = []
 
-    # Get user email from session state
-    user_email = ""
-    if 'user_info' in st.session_state and st.session_state['user_info']:
-        user_email = st.session_state['user_info'].get('username')
+
 
     if st.session_state.get("form_submitted_successfully", False):
         # Clear single entry form state
@@ -92,7 +89,6 @@ def render_raw_material_inward_issue_form() -> None:
                 st.warning("Please correct the following errors:\n\n" + "\n".join([f"- {e}" for e in errors]))
             else:
                 entry = {
-                    "user_id": user_email or "",
                     "rm_receipt_date": st.session_state.receipt_date,
                     "rm_type": st.session_state.rm_type,
                     "coil_number": st.session_state.coil_number_input,

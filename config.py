@@ -17,11 +17,18 @@ class StreamlitSettings(BaseModel):
 class ConstantsSettings(BaseModel):
     steel_density: float = Field(default=7.41) # Default to a common value
 
+class SlittingPlanSettings(BaseModel):
+    plan_id_prefix: str = Field(default="SP")
+    initial_status: str = Field(default="Created")
+    printable_statuses: list[str] = Field(default_factory=lambda: ["Created", "In Process"])
+    validation_weight_tolerance: float = Field(default=0.01)
+
 class Settings(BaseModel):
     app: AppSettings
     api: APISettings
     streamlit: StreamlitSettings
     constants: ConstantsSettings
+    slitting_plan: SlittingPlanSettings
 
 # Load settings from st.secrets
 def load_settings() -> Settings:
@@ -37,6 +44,7 @@ def load_settings() -> Settings:
         api=APISettings(**st.secrets.get("api", {})),
         streamlit=StreamlitSettings(**st.secrets.get("streamlit", {})),
         constants=ConstantsSettings(**st.secrets.get("constants", {})),
+        slitting_plan=SlittingPlanSettings(**st.secrets.get("slitting_plan", {})),
     )
 
 settings = load_settings()

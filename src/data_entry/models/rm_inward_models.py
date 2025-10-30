@@ -5,7 +5,6 @@ from typing import List, Optional
 class RMInwardIssueRequest(BaseModel):
     """Request model for creating a new RM Inward Issue"""
 
-    user_id: str = Field(..., min_length=1, description="User ID")
     rm_receipt_date: date = Field(..., description="RM Receipt Date")
     rm_type: str = Field(..., min_length=1, description="RM Type")
     coil_number: str = Field(..., min_length=1, description="Coil Number")
@@ -26,7 +25,6 @@ class RMInwardIssueRequest(BaseModel):
         return v
 
     @field_validator(
-        "user_id",
         "rm_type",
         "coil_number",
         "grade",
@@ -44,7 +42,6 @@ class RMInwardIssueRequest(BaseModel):
 class RMInwardIssueRecord(BaseModel):
     """Record model for RM Inward Issue data"""
 
-    user_id: str
     rm_receipt_date: date
     rm_type: str
     coil_number: str
@@ -60,7 +57,7 @@ class RMInwardIssueRecord(BaseModel):
     def to_list(self) -> list:
         """Convert to list format for Google Sheets"""
         return [
-            self.user_id,
+            self.coil_location,
             self.rm_receipt_date.strftime("%m/%d/%Y"),
             self.rm_type,
             self.coil_number,
@@ -69,6 +66,7 @@ class RMInwardIssueRecord(BaseModel):
             self.width,
             self.coating,
             self.coil_weight,
+            None,  # No of Box / Coil
             self.po_number or "",
             self.coil_supplier,
             None,  # RM Issue Date
@@ -77,13 +75,15 @@ class RMInwardIssueRecord(BaseModel):
             None,  # Material in stock
             None,  # RM Age
             None,  # Card No
-            self.coil_location, # Coil Location
+            None,  # RM Allocated Qty
+            None,  # Balance RM pending
+            None,  # Boxes Used
         ]
 
     def to_dict(self) -> dict:
         """Convert to dictionary format"""
         return {
-            "User ID": self.user_id,
+            "Location": self.coil_location,
             "RM Receipt Date": self.rm_receipt_date.strftime("%m/%d/%Y"),
             "RM Type": self.rm_type,
             "Coil Number": self.coil_number,
@@ -94,13 +94,11 @@ class RMInwardIssueRecord(BaseModel):
             "Coil Weight": self.coil_weight,
             "PO Number": self.po_number,
             "Coil Supplier": self.coil_supplier,
-            "Coil Location": self.coil_location,
         }
 
 class DropdownData(BaseModel):
     """Model for dropdown data"""
 
-    user_ids: List[str] = []
     rm_types: List[str] = []
     coil_numbers: List[str] = []
     grades: List[str] = []
