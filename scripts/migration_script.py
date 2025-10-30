@@ -123,8 +123,7 @@ def run_migration():
                 "coil_weight": coil_weight,
                 "po_number": str(record.get("DC CH NO.") or 'N/A'),
                 "coil_supplier": coil_supplier,
-                "coil_location": "Tenth",
-            }
+                                    "coil_location": "TAIIN",            }
 
             request_obj = RMInwardIssueRequest(**request_data)
             

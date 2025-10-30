@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field, field_validator
 from datetime import date
-from typing import List
+from typing import List, Optional
 
 class RMInwardIssueRequest(BaseModel):
     """Request model for creating a new RM Inward Issue"""
@@ -14,7 +14,7 @@ class RMInwardIssueRequest(BaseModel):
     width: int = Field(..., gt=0, description="Width")
     coating: str = Field(..., min_length=1, description="Coating")
     coil_weight: float = Field(..., gt=0, description="Coil Weight")
-    po_number: str = Field(..., min_length=1, description="PO Number")
+    po_number: Optional[str] = Field(default=None, description="PO Number")
     coil_supplier: str = Field(..., min_length=1, description="Coil Supplier")
     coil_location: str = Field(..., description="Coil Location")
 
@@ -31,7 +31,6 @@ class RMInwardIssueRequest(BaseModel):
         "coil_number",
         "grade",
         "coating",
-        "po_number",
         "coil_supplier",
         "coil_location",
     )
@@ -54,7 +53,7 @@ class RMInwardIssueRecord(BaseModel):
     width: int
     coating: str
     coil_weight: float
-    po_number: str
+    po_number: Optional[str] = None
     coil_supplier: str
     coil_location: str
 
@@ -70,7 +69,7 @@ class RMInwardIssueRecord(BaseModel):
             self.width,
             self.coating,
             self.coil_weight,
-            self.po_number,
+            self.po_number or "",
             self.coil_supplier,
             None,  # RM Issue Date
             None,  # RM Issue Qty

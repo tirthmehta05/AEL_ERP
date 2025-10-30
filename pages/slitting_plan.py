@@ -2,16 +2,29 @@ import streamlit as st
 import pandas as pd
 from src.slitting_plan.service.slitting_plan_service import SlittingPlanService
 from datetime import datetime, timedelta
+import time
+
+# --- Data Caching ---
+@st.cache_data
+def get_cached_available_coils(_service):
+    return _service.get_available_coils()
+
+@st.cache_data
+def get_cached_material_type_options(_service):
+    return _service.get_material_type_options()
+
+@st.cache_data
+def get_cached_sales_order_summary(_service, start_date, end_date, material_type):
+    return _service.get_sales_order_summary(start_date, end_date, material_type)
 
 def render():
     st.markdown("<h1 class='main-header'>Slitting Plan</h1>", unsafe_allow_html=True)
 
     service = SlittingPlanService()
-    available_coils_df = service.get_available_coils()
+    available_coils_df = get_cached_available_coils(service)
 
     if available_coils_df.empty:
         st.warning("No available coils found.")
-        # We still want to show the order summary even if there are no coils
     
     # --- Main Page Content ---
     if not available_coils_df.empty:
@@ -81,36 +94,80 @@ def render():
                 use_container_width=True
             )
 
-            # --- Calculations ---
-            total_weight_selected = sum([float(c.split(" - ")[1].split(" kg")[0]) for c in selected_coils])
-            total_width_selected = filtered_df[filtered_df["Coil Number"].isin([c.split(" - ")[0] for c in selected_coils])]["width"].sum()
+            # --- Calculations and Validation ---
+            if not selected_coils:
+                st.warning("Please select at least one coil to proceed.")
+            elif not edited_df.empty:
+                # Get the width of a single coil (assuming all selected coils have the same width)
+                selected_coil_numbers = [c.split(" - ")[0] for c in selected_coils]
+                selected_coils_df = filtered_df[filtered_df["Coil Number"].isin(selected_coil_numbers)]
+                single_coil_width = selected_coils_df["width"].iloc[0] if not selected_coils_df.empty else 0
 
-            if not edited_df.empty:
+                # Ensure input columns are numeric
                 edited_df["Size"] = pd.to_numeric(edited_df["Size"], errors='coerce').fillna(0)
                 edited_df["No. of Slits"] = pd.to_numeric(edited_df["No. of Slits"], errors='coerce').fillna(0)
 
-                edited_df["MM"] = edited_df["Size"] * edited_df["No. of Slits"]
-                if total_width_selected > 0:
-                    edited_df["Weight in Kg"] = (total_weight_selected / total_width_selected) * edited_df["MM"]
+                # Validation Check 1: No slit size can be wider than the coil width
+                max_slit_size = edited_df["Size"].max()
+                if max_slit_size > single_coil_width:
+                    st.error(f"Error: Requested slit size of {max_slit_size}mm is wider than the selected coil width ({single_coil_width}mm).")
                 else:
-                    edited_df["Weight in Kg"] = 0
-                
-                st.markdown("<h5>Calculated Plan</h5>", unsafe_allow_html=True)
-                st.dataframe(edited_df, use_container_width=True)
+                    # Calculate the new columns
+                    edited_df["MM"] = edited_df["Size"] * edited_df["No. of Slits"]
+                    
+                    total_mm_used = edited_df["MM"].sum()
 
-                st.markdown("<h4>Summary</h4>", unsafe_allow_html=True)
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("Total No. of Slits", edited_df["No. of Slits"].sum())
-                with col2:
-                    st.metric("Total MM", edited_df["MM"].sum())
-                with col3:
-                    st.metric("Total Weight (Kg)", f"{edited_df['Weight in Kg'].sum():.2f}")
-                with col4:
-                    scrap_mm = total_width_selected - edited_df["MM"].sum()
-                    scrap_weight = (total_weight_selected / total_width_selected) * scrap_mm if total_width_selected > 0 else 0
-                    st.metric("Scrap MM", scrap_mm)
-                    st.metric("Scrap Weight (Kg)", f"{scrap_weight:.2f}")
+                    # Validation Check 2: Total planned width cannot exceed the width of a single coil
+                    if total_mm_used > single_coil_width:
+                        st.error(f"Error: Total planned width ({total_mm_used}mm) exceeds the width of a single coil ({single_coil_width}mm).")
+                    else:
+                        # Calculate weight based on the new logic
+                        total_weight_selected = sum([float(c.split(" - ")[1].split(" kg")[0]) for c in selected_coils])
+                        if single_coil_width > 0:
+                            weight_per_mm = total_weight_selected / single_coil_width
+                            edited_df["Weight in Kg"] = weight_per_mm * edited_df["MM"]
+                        else:
+                            edited_df["Weight in Kg"] = 0
+                        
+                        # Display the full table with calculated values
+                        st.markdown("<h5>Calculated Plan</h5>", unsafe_allow_html=True)
+                        st.dataframe(edited_df, use_container_width=True)
+
+                        # --- Summary ---
+                        st.markdown("<h4>Summary</h4>", unsafe_allow_html=True)
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Total No. of Slits", edited_df["No. of Slits"].sum())
+                        with col2:
+                            st.metric("Total MM Used", total_mm_used)
+                        with col3:
+                            st.metric("Total Weight (Kg)", f"{edited_df['Weight in Kg'].sum():.2f}")
+                        with col4:
+                            scrap_per_coil = single_coil_width - total_mm_used
+                            scrap_weight = weight_per_mm * scrap_per_coil if single_coil_width > 0 else 0
+                            st.metric("Scrap per Coil (MM)", scrap_per_coil)
+                            st.metric("Scrap Weight (Kg)", f"{scrap_weight:.2f}")
+
+                        st.markdown("---")
+                        if st.button("Save Slitting Plan"):
+                            plan_data = {
+                                'coil_width': single_coil_width,
+                                'total_coil_weight': total_weight_selected,
+                                'scrap_mm': scrap_per_coil,
+                                'scrap_weight': scrap_weight,
+                                'selected_coils': selected_coils_df.to_dict('records'),
+                                'slit_details': edited_df[edited_df['Size'] > 0].to_dict('records')
+                            }
+                            with st.spinner("Saving plan..."):
+                                plan_id = service.save_plan(plan_data)
+                                if plan_id:
+                                    st.success(f"Successfully saved Slitting Plan with ID: **{plan_id}**")
+                                    get_cached_available_coils.clear()
+                                    time.sleep(2)
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to save the slitting plan.")
+
             st.markdown("</div>", unsafe_allow_html=True)
 
     # --- Summary Expanders at the bottom ---
@@ -134,7 +191,7 @@ def render():
         with col2:
             end_date = st.date_input("End Date", value=datetime.now())
         
-        material_type_options = service.get_material_type_options()
+        material_type_options = get_cached_material_type_options(service)
         material_type = st.selectbox("Material Type", options=material_type_options)
 
         # Get and display summary
@@ -142,7 +199,7 @@ def render():
             if start_date > end_date:
                 st.error("Start date cannot be after end date.")
             else:
-                order_summary_df = service.get_sales_order_summary(start_date, end_date, material_type)
+                order_summary_df = get_cached_sales_order_summary(service, start_date, end_date, material_type)
                 st.markdown("<h5>Filtered Order Summary</h5>", unsafe_allow_html=True)
                 if not order_summary_df.empty:
                     st.dataframe(order_summary_df, use_container_width=True)

@@ -157,7 +157,7 @@ class GoogleDriveService:
     def insert_row_before_last(
         self, spreadsheet_id: str, worksheet_name: str, data: List[List[Any]]
     ) -> bool:
-        """Insert a new row before the last row of a worksheet"""
+        """Insert one or more new rows before the last row of a worksheet"""
         try:
             if not self.client:
                 raise Exception("Google Drive client not initialized")
@@ -169,12 +169,12 @@ class GoogleDriveService:
             all_values = worksheet.get_all_values()
             last_row_index = len(all_values)
 
-            # Insert the new row before the last row
-            worksheet.insert_row(data[0], index=last_row_index, value_input_option='USER_ENTERED')
+            # Insert the new rows before the last row
+            worksheet.insert_rows(data, row=last_row_index, value_input_option='USER_ENTERED')
             return True
 
         except Exception as e:
-            logger.error(f"Error inserting row in '{worksheet_name}': {str(e)}")
+            logger.error(f"Error inserting rows in '{worksheet_name}': {str(e)}")
             return False
 
     def get_worksheet_headers(
@@ -209,6 +209,61 @@ class GoogleDriveService:
         except Exception as e:
             logger.error(f"Connection test failed: {str(e)}")
             return False
+
+    def ensure_worksheet_with_headers(self, spreadsheet_id: str, worksheet_name: str, headers: List[str]) -> bool:
+        """Ensures a worksheet exists and has the specified headers."""
+        try:
+            if not self.client:
+                raise Exception("Google Drive client not initialized")
+            
+            spreadsheet = self.client.open_by_key(spreadsheet_id)
+            try:
+                worksheet = spreadsheet.worksheet(worksheet_name)
+                # If sheet exists but is empty, add headers
+                if not worksheet.get_all_values():
+                    worksheet.append_row(headers, value_input_option='USER_ENTERED')
+            except gspread.exceptions.WorksheetNotFound:
+                # If sheet does not exist, create it and add headers
+                worksheet = spreadsheet.add_worksheet(title=worksheet_name, rows=1, cols=len(headers))
+                worksheet.append_row(headers, value_input_option='USER_ENTERED')
+            return True
+        except Exception as e:
+            logger.error(f"Error ensuring worksheet '{worksheet_name}': {str(e)}")
+            return False
+
+    def upsert_row(self, spreadsheet_id: str, worksheet_name: str, data: List[Any], key_column_index: int = 0) -> bool:
+        """Update a row if key exists, otherwise insert a new row."""
+        try:
+            if not self.client:
+                raise Exception("Google Drive client not initialized")
+
+            spreadsheet = self.client.open_by_key(spreadsheet_id)
+            try:
+                worksheet = spreadsheet.worksheet(worksheet_name)
+            except gspread.exceptions.WorksheetNotFound:
+                logger.info(f"Worksheet '{worksheet_name}' not found. Creating it.")
+                worksheet = spreadsheet.add_worksheet(title=worksheet_name, rows=1, cols=len(data))
+                worksheet.append_row(data, value_input_option='USER_ENTERED')
+                return True
+
+            key_to_find = data[key_column_index]
+            cell_list = worksheet.findall(key_to_find, in_column=key_column_index + 1)
+
+            if cell_list:
+                # Key found, update the first occurrence
+                row_index = cell_list[0].row
+                worksheet.update(f'A{row_index}', [data], value_input_option='USER_ENTERED')
+                logger.info(f"Updated row {row_index} for key '{key_to_find}' in '{worksheet_name}'.")
+            else:
+                # Key not found, append new row
+                worksheet.append_row(data, value_input_option='USER_ENTERED')
+                logger.info(f"Appended new row for key '{key_to_find}' in '{worksheet_name}'.")
+            
+            return True
+        except Exception as e:
+            logger.error(f"Error upserting data in '{worksheet_name}': {str(e)}")
+            return False
+
 
 # Global instance
 google_drive_service = GoogleDriveService()

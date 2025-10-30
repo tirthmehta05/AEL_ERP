@@ -1,121 +1,116 @@
-# run_test.py
+import pytest
+from unittest.mock import MagicMock, patch
+import pandas as pd
+from datetime import datetime, date
 
-import time
-from datetime import datetime
-from src.data_entry.models.rm_inward_models import RMInwardIssueRequest
-from src.data_entry.service.rm_inward_service import RMInwardService
-from src.shared.integrations.google_drive_service import google_drive_service
-from config import settings
+# Patch settings and google_drive_service before importing the service
+with patch('config.settings', MagicMock()), \
+     patch('src.shared.integrations.google_drive_service.google_drive_service', MagicMock()):
+    from src.data_entry.service.rm_inward_service import RMInwardService
+    from src.data_entry.models.rm_inward_models import RMInwardIssueRequest
 
-
-def run_all_tests():
-    """
-    Executes a series of live tests for the RMInwardService.
-    """
-    print("--- Starting Live End-to-End Tests for RMInwardService ---")
-
-    # Initialize the service
+@pytest.fixture
+def inward_service():
+    """Pytest fixture to provide an RMInwardService instance with a mocked GoogleDriveService."""
     service = RMInwardService()
+    # The google_drive_service is already mocked by the patch at the top level
+    return service
 
-    # Test 1: Validate Spreadsheet Setup
-    print("\n--- Test 1: Validating Spreadsheet Setup ---")
-    if test_validate_spreadsheet_setup(service):
-        print("✅ Spreadsheet setup is valid.")
-    else:
-        print("❌ Spreadsheet validation failed. Aborting tests.")
-        return
+def test_generate_coil_number(inward_service):
+    """Test that coil number generation contains the correct components."""
+    grade = "CRNGO"
+    coating = "C5"
+    width = 1250
+    coil_number = inward_service.generate_coil_number(grade, coating, width)
+    assert grade in coil_number
+    assert coating in coil_number
+    assert str(width) in coil_number
 
-    # Test 2: Get Dropdown Data
-    print("\n--- Test 2: Getting Dropdown Data ---")
-    if test_get_dropdown_data(service):
-        print("✅ Dropdown data retrieved successfully.")
-    else:
-        print("❌ Failed to retrieve dropdown data.")
+def test_validate_single_entry_success(inward_service):
+    """Test a successful validation of a single entry."""
+    inward_service.is_coil_number_unique = MagicMock(return_value=True)
+    form_data = {
+        'receipt_date': datetime.now().date(), 'rm_type': 'HR', 'grade': 'A', 'thk': '1', 'width': '1000',
+        'coating': 'None', 'supplier': 'JSW', 'coil_number': 'TEST001', 'coil_weight': 100
+    }
+    errors = inward_service.validate_single_entry(form_data)
+    assert not errors
 
-    # Test 3: Create and Read a New Record
-    print("\n--- Test 3: Creating and Verifying a New Record ---")
-    if test_create_and_read_record(service):
-        print("✅ New record successfully created and verified.")
-    else:
-        print("❌ Failed to create or verify the new record.")
+def test_validate_single_entry_fails_non_unique(inward_service):
+    """Test that validation fails for a non-unique coil number."""
+    inward_service.is_coil_number_unique = MagicMock(return_value=False)
+    form_data = {
+        'receipt_date': datetime.now().date(), 'rm_type': 'HR', 'grade': 'A', 'thk': '1', 'width': '1000',
+        'coating': 'None', 'supplier': 'JSW', 'coil_number': 'TEST001', 'coil_weight': 100
+    }
+    errors = inward_service.validate_single_entry(form_data)
+    assert len(errors) == 1
+    assert "already exists" in errors[0]
 
-    print("\n--- All Tests Completed ---")
+def test_group_df_by_key(inward_service):
+    """Test that the dataframe grouping logic works correctly."""
+    df = pd.DataFrame({
+        'PackingListID': ['A', 'A', 'B'],
+        'Weight': [100, 150, 200],
+        'Grade': ['G1', 'G1', 'G2']
+    })
+    mapping = {'coil_weight': 'Weight', 'grade': 'Grade'}
+    grouped_df = inward_service.group_df_by_key(df, 'PackingListID', mapping)
+    
+    assert len(grouped_df) == 2
+    # Check that weight for group 'A' is summed (100 + 150)
+    assert grouped_df[grouped_df['PackingListID'] == 'A']['Weight'].iloc[0] == 250
+    # Check that grade for group 'A' is the first one
+    assert grouped_df[grouped_df['PackingListID'] == 'A']['Grade'].iloc[0] == 'G1'
 
+def test_process_bulk_upload_df(inward_service):
+    """Test the main bulk upload processing logic."""
+    df = pd.DataFrame({
+        'Coil': ['C1', 'C2', 'C3'],
+        'ReceiptDate': [date(2025, 10, 28), date(2025, 10, 28), date(2025, 10, 28)],
+        'Type': ['HR', 'HR', 'HR'],
+        'Grade': ['G1', 'G1', 'G2'],
+        'Thk': [1.0, 1.0, 2.0],
+        'Width': [1000, 1000, 1200],
+        'Coat': ['C1', 'C1', 'C2'],
+        'Weight': [100, 150, 200],
+        'Supplier': ['S1', 'S1', 'S2']
+    })
+    mapping = {
+        'coil_number': 'Coil', 'rm_receipt_date': 'ReceiptDate', 'rm_type': 'Type',
+        'grade': 'Grade', 'thk': 'Thk', 'width': 'Width', 'coating': 'Coat',
+        'coil_weight': 'Weight', 'coil_supplier': 'Supplier'
+    }
+    options = {"user_email": "test@test.com", "auto_generate_coil": False, "group_by_col": None}
+    existing_coils = {'c0'}
 
-def test_validate_spreadsheet_setup(service: RMInwardService) -> bool:
-    """Tests if the spreadsheet is properly configured."""
-    try:
-        is_valid = service.validate_spreadsheet_setup()
-        if not is_valid:
-            print("Spreadsheet validation failed.")
-            return False
-        return True
-    except Exception as e:
-        print(f"An error occurred during validation: {e}")
-        return False
+    valid, failed = inward_service.process_bulk_upload_df(df, mapping, options, existing_coils)
 
+    assert len(valid) == 3
+    assert len(failed) == 0
+    assert isinstance(valid[0], RMInwardIssueRequest)
+    assert valid[0].coil_number == 'C1'
 
-def test_get_dropdown_data(service: RMInwardService) -> bool:
-    """Tests the retrieval of dropdown data."""
-    try:
-        dropdown_data = service.get_dropdown_data()
-        if not dropdown_data.user_ids or not dropdown_data.rm_types:
-            print("Dropdown data is empty. Check your sheet content.")
-            return False
-        return True
-    except Exception as e:
-        print(f"An error occurred while getting dropdown data: {e}")
-        return False
+def test_process_bulk_upload_df_with_failures(inward_service):
+    """Test bulk processing with a duplicate coil number."""
+    df = pd.DataFrame({
+        'Coil': ['C1', 'C2', 'C1'], # C1 is duplicated
+        'ReceiptDate': [date(2025, 10, 28), date(2025, 10, 28), date(2025, 10, 28)],
+        'Type': ['HR', 'HR', 'HR'], 'Grade': ['G1', 'G1', 'G1'], 'Thk': [1.0, 1.0, 1.0],
+        'Width': [1000, 1000, 1000], 'Coat': ['C1', 'C1', 'C1'], 'Weight': [100, 150, 200],
+        'Supplier': ['S1', 'S1', 'S1']
+    })
+    mapping = {
+        'coil_number': 'Coil', 'rm_receipt_date': 'ReceiptDate', 'rm_type': 'Type',
+        'grade': 'Grade', 'thk': 'Thk', 'width': 'Width', 'coating': 'Coat',
+        'coil_weight': 'Weight', 'coil_supplier': 'Supplier'
+    }
+    options = {"user_email": "test@test.com", "auto_generate_coil": False, "group_by_col": None}
+    existing_coils = set()
 
+    valid, failed = inward_service.process_bulk_upload_df(df, mapping, options, existing_coils)
 
-def test_create_and_read_record(service: RMInwardService) -> bool:
-    """Tests creating a record and then reading it back to verify."""
-    try:
-        unique_id = int(datetime.now().timestamp())
-        request_data = RMInwardIssueRequest(
-            user_id=f"test_user_{unique_id}",
-            rm_receipt_date=datetime.now().date(),
-            rm_type="LiveTest",
-            coil_number=f"LIVE-TEST-{unique_id}",
-            grade="TestGrade",
-            thickness="1.5",
-            width="1000",
-            coating="Z300",
-            coil_weight=unique_id,
-            po_number=f"PO-{unique_id}",
-            coil_supplier="JSW"
-        )
-
-        # Step 1: Create the record
-        print(f"Submitting new record with Coil Number: {request_data.coil_number}...")
-        success = service.create_rm_inward_issue(request_data)
-        if not success:
-            print("Failed to submit the new record.")
-            return False
-
-        # Give Google Sheets time to process the write
-        time.sleep(2)
-
-        # Step 2: Verify the record exists
-        print("Verifying the record was added...")
-        existing_records = service.get_existing_records(limit=5)
-
-        if not existing_records:
-            print("No records found after submission.")
-            return False
-        latest_record = existing_records[-1]
-        print(latest_record.get("Coil Number"))
-        if latest_record.get("Coil Number") != request_data.coil_number:
-            print(
-                f"Verification failed. Expected Coil Number: {request_data.coil_number}, Found: {latest_record.get('Coil Number')}"
-            )
-            return False
-
-        return True
-    except Exception as e:
-        print(f"An error occurred during the create/read test: {e}")
-        return False
-
-
-if __name__ == "__main__":
-    run_all_tests()
+    assert len(valid) == 2
+    assert len(failed) == 1
+    assert failed[0]['Coil Number'] == 'C1'
+    assert "already exists" in failed[0]['Error']

@@ -1,64 +1,121 @@
-# File: test_runner.py
-
+import pytest
+from unittest.mock import MagicMock, patch
 import pandas as pd
-from datetime import datetime
-from src.shared.integrations.google_drive_service import GoogleDriveService
+import gspread
 
-# --- CONFIGURATION ---
-# Replace with your actual Spreadsheet ID
-SPREADSHEET_ID = '1M1CsVZAXJ2ADfeLOlFESG3_HUKIYCK8gJz14JTwPRag' 
-# Assuming your sheet is named 'Sheet1', change if needed
-WORKSHEET_NAME = 'RM_Inward_Issue' 
+# We have to patch the settings before importing the service
+with patch('config.settings', MagicMock()):
+    from src.shared.integrations.google_drive_service import GoogleDriveService
 
-def run_tests():
-    """Initializes the service and runs a series of tests."""
-    
-    print("🚀 Initializing Google Drive Service...")
-    service = GoogleDriveService()
+@pytest.fixture
+def mocked_service():
+    """Pytest fixture to provide a GoogleDriveService instance with a mocked client."""
+    with patch('src.shared.integrations.google_drive_service.gspread.authorize') as mock_gspread_authorize:
+        mock_gspread_client = MagicMock()
+        mock_gspread_authorize.return_value = mock_gspread_client
+        
+        service = GoogleDriveService()
+        service.client = mock_gspread_client
+        yield service, mock_gspread_client
 
-    if not service.client:
-        print("\n❌ Client initialization failed. Aborting tests.")
-        return
+def test_get_worksheet_data_success(mocked_service):
+    """Test successfully getting worksheet data."""
+    service, mock_gspread_client = mocked_service
+    spreadsheet_id = "test_spreadsheet_id"
+    worksheet_name = "test_worksheet"
 
-    print("\n--- Test 1: Connection ---")
-    if service.test_connection(SPREADSHEET_ID):
-        print("✅ Connection successful!")
-    else:
-        print("❌ Connection failed. Check Spreadsheet ID and share settings.")
-        return # Stop if we can't connect
+    mock_spreadsheet = MagicMock()
+    mock_worksheet = MagicMock()
+    mock_gspread_client.open_by_key.return_value = mock_spreadsheet
+    mock_spreadsheet.worksheet.return_value = mock_worksheet
+    mock_worksheet.get_all_values.return_value = [
+        ["ID", "Name", "Value"],
+        ["1", "A", "100"],
+        ["2", "B", "200"]
+    ]
 
-    print("\n--- Test 2: Get Headers ---")
-    headers = service.get_worksheet_headers(SPREADSHEET_ID, WORKSHEET_NAME)
-    print(f"✅ Headers found: {headers}")
+    df = service.get_worksheet_data(spreadsheet_id, worksheet_name)
 
-    print("\n--- Test 3: Get All Worksheet Data ---")
-    df = service.get_worksheet_data(SPREADSHEET_ID, WORKSHEET_NAME)
-    print("✅ Data fetched successfully:")
-    print(df.to_string())
+    mock_gspread_client.open_by_key.assert_called_with(spreadsheet_id)
+    mock_spreadsheet.worksheet.assert_called_with(worksheet_name)
+    assert isinstance(df, pd.DataFrame)
+    assert len(df) == 2
+    assert list(df.columns) == ["ID", "Name", "Value"]
 
-    print("\n--- Test 4: Get Dropdown Options from 'Col2' ---")
-    options = service.get_dropdown_options(SPREADSHEET_ID, WORKSHEET_NAME, "Col2")
-    print(f"✅ Unique options in 'Col2': {options}")
+def test_append_data_success(mocked_service):
+    """Test successfully appending data."""
+    service, mock_gspread_client = mocked_service
+    spreadsheet_id = "test_spreadsheet_id"
+    worksheet_name = "test_worksheet"
 
-    print("\n--- Test 5: Append New Row ---")
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    new_row = [['m', 'n', 'o', f'p_at_{timestamp}']]
-    print(f"Appending data: {new_row}")
-    if service.append_data(SPREADSHEET_ID, WORKSHEET_NAME, new_row):
-        print("✅ Data appended successfully!")
-    else:
-        print("❌ Failed to append data.")
+    mock_spreadsheet = MagicMock()
+    mock_worksheet = MagicMock()
+    mock_gspread_client.open_by_key.return_value = mock_spreadsheet
+    mock_spreadsheet.worksheet.return_value = mock_worksheet
 
-    print("\n--- Test 6: Verify Appended Data ---")
-    df_after_append = service.get_worksheet_data(SPREADSHEET_ID, WORKSHEET_NAME)
-    print("✅ Full data after append operation:")
-    print(df_after_append.to_string())
-    
-    print("\n🎉 All tests completed.")
+    new_data = [["3", "C", "300"]]
+    result = service.append_data(spreadsheet_id, worksheet_name, new_data)
 
+    mock_worksheet.append_rows.assert_called_with(new_data, value_input_option='USER_ENTERED')
+    assert result is True
 
-if __name__ == "__main__":
-    if SPREADSHEET_ID == 'YOUR_SPREADSHEET_ID_HERE':
-        print("🔴 ERROR: Please update the SPREADSHEET_ID in test_runner.py before running.")
-    else:
-        run_tests()
+def test_ensure_worksheet_with_headers_sheet_not_found(mocked_service):
+    """Test ensuring worksheet when it does not exist."""
+    service, mock_gspread_client = mocked_service
+    spreadsheet_id = "test_spreadsheet_id"
+    worksheet_name = "test_worksheet"
+
+    mock_spreadsheet = MagicMock()
+    mock_worksheet = MagicMock()
+    mock_gspread_client.open_by_key.return_value = mock_spreadsheet
+    mock_spreadsheet.worksheet.side_effect = gspread.exceptions.WorksheetNotFound
+    mock_spreadsheet.add_worksheet.return_value = mock_worksheet
+
+    headers = ["ID", "Name"]
+    result = service.ensure_worksheet_with_headers(spreadsheet_id, worksheet_name, headers)
+
+    mock_spreadsheet.add_worksheet.assert_called_with(title=worksheet_name, rows=1, cols=2)
+    mock_worksheet.append_row.assert_called_with(headers, value_input_option='USER_ENTERED')
+    assert result is True
+
+def test_upsert_row_inserts_new_row(mocked_service):
+    """Test that upsert adds a new row when the key is not found."""
+    service, mock_gspread_client = mocked_service
+    spreadsheet_id = "test_spreadsheet_id"
+    worksheet_name = "test_worksheet"
+
+    mock_spreadsheet = MagicMock()
+    mock_worksheet = MagicMock()
+    mock_gspread_client.open_by_key.return_value = mock_spreadsheet
+    mock_spreadsheet.worksheet.return_value = mock_worksheet
+    mock_worksheet.findall.return_value = []  # Simulate key not found
+
+    new_data = ["key-1", "New Data"]
+    result = service.upsert_row(spreadsheet_id, worksheet_name, new_data, key_column_index=0)
+
+    mock_worksheet.findall.assert_called_with("key-1", in_column=1)
+    mock_worksheet.append_row.assert_called_with(new_data, value_input_option='USER_ENTERED')
+    mock_worksheet.update.assert_not_called()
+    assert result is True
+
+def test_upsert_row_updates_existing_row(mocked_service):
+    """Test that upsert updates an existing row when the key is found."""
+    service, mock_gspread_client = mocked_service
+    spreadsheet_id = "test_spreadsheet_id"
+    worksheet_name = "test_worksheet"
+
+    mock_spreadsheet = MagicMock()
+    mock_worksheet = MagicMock()
+    mock_cell = MagicMock()
+    mock_cell.row = 5
+    mock_gspread_client.open_by_key.return_value = mock_spreadsheet
+    mock_spreadsheet.worksheet.return_value = mock_worksheet
+    mock_worksheet.findall.return_value = [mock_cell]  # Simulate key found at row 5
+
+    update_data = ["key-1", "Updated Data"]
+    result = service.upsert_row(spreadsheet_id, worksheet_name, update_data, key_column_index=0)
+
+    mock_worksheet.findall.assert_called_with("key-1", in_column=1)
+    mock_worksheet.update.assert_called_with('A5', [update_data], value_input_option='USER_ENTERED')
+    mock_worksheet.append_row.assert_not_called()
+    assert result is True
