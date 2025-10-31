@@ -87,22 +87,30 @@ def render_design_entry_fields():
     # Live Calculation Display
     try:
         calc_text = ""
+        num_sets = st.session_state.design_sets
         if st.session_state.design_is_loose:
             if st.session_state.design_width > 0 and st.session_state.design_length > 0 and settings.constants.steel_density > 0:
-                weight_calc = st.session_state.design_weight
+                weight_per_set = st.session_state.design_weight
+                total_weight = weight_per_set * num_sets
+                
                 width_m = st.session_state.design_width / 1000
                 length_m = st.session_state.design_length / 1000
                 density_kg_m3 = settings.constants.steel_density * 1000
-                stack_m = (weight_calc / (width_m * length_m * density_kg_m3))
-                calc_text = f"**Calculated Stack:** `{stack_m * 1000:.2f} mm`"
+                
+                stack_per_set_m = (weight_per_set / (width_m * length_m * density_kg_m3))
+                total_stack_mm = (stack_per_set_m * 1000) * num_sets
+                calc_text = f"**Total Stack:** `{total_stack_mm:.2f} mm` | **Total Weight:** `{total_weight:.2f} kg`"
         else:
             if st.session_state.design_width > 0 and st.session_state.design_length > 0 and st.session_state.design_mm_stack > 0:
+                stack_per_set_mm = st.session_state.design_mm_stack
+                total_stack_mm = stack_per_set_mm * num_sets
+
                 width_m = st.session_state.design_width / 1000
                 length_m = st.session_state.design_length / 1000
-                stack_m = st.session_state.design_mm_stack / 1000
+                total_stack_m = total_stack_mm / 1000
                 density_kg_m3 = settings.constants.steel_density * 1000
-                weight_calc = (width_m * length_m * stack_m * density_kg_m3)
-                calc_text = f"**Calculated Weight:** `{weight_calc:.2f} kg`"
+                total_weight = (width_m * length_m * total_stack_m * density_kg_m3)
+                calc_text = f"**Total Stack:** `{total_stack_mm:.2f} mm` | **Total Weight:** `{total_weight:.2f} kg`"
         if calc_text:
             st.info(calc_text)
     except Exception: pass
@@ -115,23 +123,32 @@ def add_design_to_state():
     try:
         is_loose = st.session_state.design_is_loose
         thk_mm = st.session_state.design_thk
+        num_sets = st.session_state.design_sets
         mm_stack, weight = 0, 0
+
         if is_loose:
-            weight = st.session_state.design_weight
+            weight_per_set = st.session_state.design_weight
+            weight = weight_per_set * num_sets
+
             width_m = st.session_state.design_width / 1000
             length_m = st.session_state.design_length / 1000
             density_kg_m3 = settings.constants.steel_density * 1000
             if width_m * length_m * density_kg_m3 == 0: raise ValueError("Width, Length, and Density must be non-zero.")
-            mm_stack = (weight / (width_m * length_m * density_kg_m3)) * 1000
+            
+            stack_per_set_m = (weight_per_set / (width_m * length_m * density_kg_m3))
+            mm_stack = (stack_per_set_m * 1000) * num_sets
         else:
-            mm_stack = st.session_state.design_mm_stack
+            stack_per_set_mm = st.session_state.design_mm_stack
+            mm_stack = stack_per_set_mm * num_sets
+
             width_m = st.session_state.design_width / 1000
             length_m = st.session_state.design_length / 1000
             stack_m = mm_stack / 1000
             density_kg_m3 = settings.constants.steel_density * 1000
             weight = (width_m * length_m * stack_m * density_kg_m3)
+
         if thk_mm == 0: raise ValueError("Thickness cannot be zero.")
-        pcs = int((mm_stack / thk_mm) * st.session_state.design_sets)
+        pcs = int(mm_stack / thk_mm)
 
         design = DesignDetail(
             party_job_no=st.session_state.so_party_job_no or None,
