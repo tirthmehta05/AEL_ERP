@@ -60,7 +60,7 @@ def render_slitting_plan_editor_and_summary(service, filtered_df, selected_coils
         st.markdown("<div class='card-header'>Slitting Plan</div>", unsafe_allow_html=True)
         
         slitting_plan_input_df = pd.DataFrame(
-            [{"Size": 0, "No. of Slits": 0}]
+            [{"Size": 0.0, "No. of Slits": 0}]
         )
 
         st.markdown("<h5>Enter Slitting Sizes</h5>", unsafe_allow_html=True)
@@ -68,7 +68,19 @@ def render_slitting_plan_editor_and_summary(service, filtered_df, selected_coils
             slitting_plan_input_df,
             num_rows="dynamic",
             key="slitting_plan_editor",
-            use_container_width=True
+            use_container_width=True,
+            column_config={
+                "Size": st.column_config.NumberColumn(
+                    "Slit Size (mm)",
+                    help="The width of the slit.",
+                    format="%.2f",
+                ),
+                "No. of Slits": st.column_config.NumberColumn(
+                    "Number of Slits",
+                    help="How many slits of this size.",
+                    format="%d",
+                )
+            }
         )
 
         if not selected_coils:
