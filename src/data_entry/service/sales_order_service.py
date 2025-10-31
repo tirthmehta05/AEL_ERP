@@ -19,12 +19,34 @@ class SalesOrderService:
         self.spreadsheet_id = settings.api.google_sheets_id
         self.rm_used_service = RMUsedService()
 
-    def generate_job_card_number(self, party_name: str) -> str:
-        """Generates a new unique Job Card number."""
-        today_str = datetime.now().strftime("%y%m%d")
-        time_str = datetime.now().strftime("%H%M%S")
-        party_abbr = party_name[:3].upper() if party_name else "UNK"
-        return f"JC-{party_abbr}-{today_str}-{time_str}"
+    def generate_job_card_number(self, type: str) -> str:
+        """Generates a new unique Job Card number based on the type (CRNO/CRNGO)."""
+        prefix = "N-" if type == "CRNO" else "G-"
+        start_number = 6160
+
+        try:
+            df = self.google_service.get_worksheet_data(self.spreadsheet_id, "Sales Order-JC", header_row=1)
+            if df.empty or 'job_card_number' not in df.columns:
+                return f"{prefix}{start_number}"
+
+            # Filter job card numbers for the given type
+            jc_series = df['job_card_number'][df['job_card_number'].str.startswith(prefix, na=False)]
+
+            if jc_series.empty:
+                return f"{prefix}{start_number}"
+
+            # Extract numbers, convert to int, and find max
+            max_num = jc_series.str.split('-').str[1].astype(int).max()
+            
+            if max_num < start_number:
+                return f"{prefix}{start_number}"
+
+            next_num = max_num + 1
+            return f"{prefix}{next_num}"
+        except Exception as e:
+            logger.error(f"Error generating job card number: {str(e)}")
+            # Fallback to a safe, but different, format to avoid duplicates
+            return f"{prefix}{datetime.now().strftime('%y%m%d%H%M%S')}"
 
 
     def get_dropdown_data(self) -> SalesOrderDropdownData:
@@ -51,7 +73,7 @@ class SalesOrderService:
     def save_sales_order(self, request: SalesOrderRequest) -> bool:
         """Saves a new sales order entry to the 'Sales Order-JC' sheet and the 'Sales Order' sheet."""
         try:
-            request.job_card_number = self.generate_job_card_number(request.party_name)
+            request.job_card_number = self.generate_job_card_number(request.designs[0].type)
 
             worksheet_name_jc = "Sales Order-JC"
             headers_jc = [
