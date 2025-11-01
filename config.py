@@ -22,6 +22,7 @@ class SlittingPlanSettings(BaseModel):
     initial_status: str = Field(default="Created")
     printable_statuses: list[str] = Field(default_factory=lambda: ["Created", "In Process"])
     validation_weight_tolerance: float = Field(default=0.01)
+    slitters: list[str] = Field(default_factory=lambda: ["AEL Pune", "TAIIN"])
 
 class Settings(BaseModel):
     app: AppSettings

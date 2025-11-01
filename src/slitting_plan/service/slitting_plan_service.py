@@ -100,9 +100,12 @@ class SlittingPlanService:
 
         return summary_df
 
-    def get_next_plan_id(self, width: int) -> str:
+    def get_next_plan_id(self, width: int, supplier_name: str, slitter_name: str) -> str:
+        """Generates a new unique ID for a slitting plan from the 'SlittingPlans' sheet."""
         today_str = datetime.now().strftime("%y%m%d")
-        prefix = f"{settings.slitting_plan.plan_id_prefix}-{width}-{today_str}-"
+        supplier_abbr = supplier_name[:3].upper() if supplier_name else "UNK"
+        slitter_abbr = slitter_name[:3].upper() if slitter_name else "UNK"
+        prefix = f"{settings.slitting_plan.plan_id_prefix}-{slitter_abbr}-{supplier_abbr}-{width}-{today_str}-"
         try:
             df = self.repository.fetch_slitting_plans_data()
             if df.empty or 'PlanID' not in df.columns:
@@ -167,7 +170,8 @@ class SlittingPlanService:
 
     def save_plan(self, plan_data: dict) -> str:
         try:
-            plan_id = self.get_next_plan_id(plan_data['coil_width'])
+            supplier_name = plan_data['selected_coils'][0]['coil_supplier'] if plan_data['selected_coils'] else ""
+            plan_id = self.get_next_plan_id(plan_data['coil_width'], supplier_name, plan_data['slitter'])
             headers = [
                 "PlanID", "Date", "Status", "CoilWidth", "TotalCoilWeight", 
                 "ScrapMM", "ScrapWeight", "RawMaterialsJSON", "SlitDetailsJSON"

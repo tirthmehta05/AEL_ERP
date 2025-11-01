@@ -6,7 +6,7 @@ from src.data_entry.service.rm_used_service import RMUsedService
 from src.data_entry.models.rm_used_models import RMUsedRequest
 from config import settings
 
-from datetime import datetime
+from datetime import date, datetime
 
 import json
 import pandas as pd
@@ -65,7 +65,11 @@ class SalesOrderService:
                 # Ensure values are integers
                 hole_sizes = sorted([int(s) for s in df["Hole Size"].dropna().unique() if str(s).isdigit()])
 
-            return SalesOrderDropdownData(party_names=party_names, hole_sizes=hole_sizes)
+            coatings = []
+            if "Coating" in df.columns:
+                coatings = sorted(df["Coating"].dropna().unique().tolist())
+
+            return SalesOrderDropdownData(party_names=party_names, hole_sizes=hole_sizes, coatings=coatings)
         except Exception as e:
             logger.error(f"Error getting dropdown data for Sales Order: {str(e)}")
             return SalesOrderDropdownData()
@@ -78,7 +82,7 @@ class SalesOrderService:
             worksheet_name_jc = "Sales Order-JC"
             headers_jc = [
                 "order_date", "po_no", "party_name", "delivery_date", "job_card_number",
-                "hole_size", "number_of_cores", "rate_per_kg", "header_core_stack", "designs_json",
+                "hole_size", "number_of_cores", "rate_per_kg", "header_core_stack", "coating", "designs_json",
                 "status"
             ]
             self.google_service.ensure_worksheet_with_headers(self.spreadsheet_id, worksheet_name_jc, headers_jc)
@@ -91,7 +95,7 @@ class SalesOrderService:
                 request.order_date.strftime("%Y-%m-%d"), request.po_no, request.party_name,
                 request.delivery_date.strftime("%Y-%m-%d"), request.job_card_number,
                 request.hole_size, request.number_of_cores, request.rate_per_kg,
-                request.header_core_stack, designs_json, status
+                request.header_core_stack, request.coating, designs_json, status
             ]
 
             success_jc = self.google_service.append_data(self.spreadsheet_id, worksheet_name_jc, [data_row_jc])
@@ -204,3 +208,22 @@ class SalesOrderService:
         except Exception as e:
             logger.error(f"Error assigning coils to sales order {job_card_number}: {str(e)}")
             return False
+
+    def get_job_cards_for_party_and_date_range(self, party_name: str, start_date: date, end_date: date) -> List[dict]:
+        """Fetches job cards for a specific party within a date range."""
+        try:
+            df = self.google_service.get_worksheet_data(self.spreadsheet_id, "Sales Order-JC", header_row=1)
+            if df.empty:
+                return []
+
+            df['order_date'] = pd.to_datetime(df['order_date'], errors='coerce').dt.date
+            
+            filtered_df = df[
+                (df['party_name'] == party_name) &
+                (df['order_date'] >= start_date) &
+                (df['order_date'] <= end_date)
+            ]
+            return filtered_df.to_dict('records')
+        except Exception as e:
+            logger.error(f"Error fetching job cards for party {party_name}: {str(e)}")
+            return []

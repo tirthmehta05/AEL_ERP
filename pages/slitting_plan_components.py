@@ -10,40 +10,44 @@ def render_filters(available_coils_df):
         
         filtered_df = available_coils_df.copy()
 
-        col1, col2, col3, col4, col5 = st.columns(5)
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
         
         with col1:
+            from config import settings
+            slitter = st.selectbox("Slitter", options=settings.slitting_plan.slitters)
+
+        with col2:
             coil_location_options = ["All"] + list(filtered_df["coil_location"].unique())
             coil_location = st.selectbox("Coil Location", options=coil_location_options)
             if coil_location != "All":
                 filtered_df = filtered_df[filtered_df["coil_location"] == coil_location]
 
-        with col2:
+        with col3:
             grade_options = ["All"] + list(filtered_df["grade"].unique())
             grade = st.selectbox("Grade", options=grade_options)
             if grade != "All":
                 filtered_df = filtered_df[filtered_df["grade"] == grade]
 
-        with col3:
+        with col4:
             thickness_options = ["All"] + list(filtered_df["thickness"].unique())
             thickness = st.selectbox("Thickness (Thk)", options=thickness_options)
             if thickness != "All":
                 filtered_df = filtered_df[filtered_df["thickness"] == thickness]
 
-        with col4:
+        with col5:
             width_options = ["All"] + list(filtered_df["width"].unique())
             width = st.selectbox("Width", options=width_options)
             if width != "All":
                 filtered_df = filtered_df[filtered_df["width"] == width]
 
-        with col5:
+        with col6:
             coating_options = ["All"] + list(filtered_df["coating"].unique())
             coating = st.selectbox("Coating", options=coating_options)
             if coating != "All":
                 filtered_df = filtered_df[filtered_df["coating"] == coating]
 
         st.markdown("</div>", unsafe_allow_html=True)
-    return filtered_df
+    return filtered_df, slitter
 
 def render_coil_selection(filtered_df):
     with st.container():
@@ -54,7 +58,7 @@ def render_coil_selection(filtered_df):
         st.markdown("</div>", unsafe_allow_html=True)
     return selected_coils
 
-def render_slitting_plan_editor_and_summary(service, filtered_df, selected_coils, get_cached_available_coils):
+def render_slitting_plan_editor_and_summary(service, filtered_df, selected_coils, slitter, get_cached_available_coils):
     with st.container():
         st.markdown("<div class='card'>", unsafe_allow_html=True)
         st.markdown("<div class='card-header'>Slitting Plan</div>", unsafe_allow_html=True)
@@ -118,6 +122,7 @@ def render_slitting_plan_editor_and_summary(service, filtered_df, selected_coils
                 st.markdown("---")
                 if st.button("Save Slitting Plan"):
                     plan_data = {
+                        'slitter': slitter,
                         'coil_width': summary["single_coil_width"],
                         'total_coil_weight': summary["total_weight_selected"],
                         'scrap_mm': summary["scrap_per_coil_mm"],

@@ -26,6 +26,8 @@ def initialize_session_state():
         st.session_state.so_type = "CRNO"
     if 'so_grade' not in st.session_state:
         st.session_state.so_grade = ""
+    if 'so_coating' not in st.session_state:
+        st.session_state.so_coating = ""
 
     # Initialize design keys to prevent errors on first run
     design_keys = ['design_width', 'design_length', 'design_weight', 
@@ -63,6 +65,7 @@ def render_header_fields(dropdown_data):
         st.number_input("Number of Cores", min_value=1, step=1, key="so_num_cores")
         st.number_input("Header Core Stack (mm)", min_value=0.0, step=1.0, format="%.1f", key="so_header_core_stack")
         st.text_input("Grade (Optional)", key="so_grade")
+        st.selectbox("Coating (Optional)", options=dropdown_data.coatings, index=None, placeholder="Select a Coating", key="so_coating")
 
 def render_design_entry_fields():
     """Renders the fields for adding a single design detail."""
@@ -156,7 +159,7 @@ def add_design_to_state():
             mm_stack=mm_stack, weight=weight, sets=st.session_state.design_sets,
             type=st.session_state.so_type, thk=st.session_state.design_thk,
             grade=st.session_state.so_grade or None, hole=st.session_state.design_hole,
-            pcs=pcs
+            pcs=pcs, coating=st.session_state.so_coating or None
         )
         st.session_state.so_designs.append(design.model_dump())
         st.success("Design added to the Job Card.")
@@ -212,6 +215,7 @@ def handle_final_submission(service: SalesOrderService):
             job_card_number=st.session_state.so_job_card_number, hole_size=st.session_state.so_hole_size,
             number_of_cores=st.session_state.so_num_cores, rate_per_kg=st.session_state.so_rate_per_kg,
             header_core_stack=st.session_state.so_header_core_stack,
+            coating=st.session_state.so_coating or None,
             designs=[DesignDetail(**d) for d in st.session_state.so_designs],
             assigned_coils=[AssignedCoil(**c) for c in st.session_state.so_assigned_coils]
         )
@@ -220,6 +224,7 @@ def handle_final_submission(service: SalesOrderService):
         if success:
             st.success(f"Sales Order {request.job_card_number} saved successfully!")
             time.sleep(2)
+            load_dropdowns.clear()
             keys_to_clear = [key for key in st.session_state.keys() if key.startswith('so_') or key.startswith('design_') or key.startswith('assign_')]
             for key in keys_to_clear:
                 if key in st.session_state: del st.session_state[key]
@@ -229,15 +234,15 @@ def handle_final_submission(service: SalesOrderService):
     except ValidationError as e:
         st.error(f"Final validation failed: {e}")
 
+@st.cache_resource(ttl=600)
+def load_dropdowns(_service: SalesOrderService):
+    return _service.get_dropdown_data()
+
 def render_sales_order_form() -> None:
     """Renders the main Sales Order entry form."""
     sales_order_service = SalesOrderService()
     slitting_service = SlittingPlanService()
     initialize_session_state()
-
-    @st.cache_data
-    def load_dropdowns(_service: SalesOrderService):
-        return _service.get_dropdown_data()
 
     dropdown_data = load_dropdowns(sales_order_service)
 
