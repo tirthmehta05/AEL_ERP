@@ -28,7 +28,7 @@ def render_raw_material_inward_issue_form() -> None:
                 del st.session_state[key]
         st.session_state.form_submitted_successfully = False
 
-    @st.cache_resource
+    @st.cache_resource(ttl=600)
     def load_dropdowns(_service: RMInwardService):
         return _service.get_dropdown_data()
 

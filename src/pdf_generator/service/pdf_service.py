@@ -3,9 +3,8 @@ import pandas as pd
 from src.slitting_plan.service.slitting_plan_service import SlittingPlanService
 from src.data_entry.service.sales_order_service import SalesOrderService
 from src.data_entry.service.rm_used_service import RMUsedService
+from src.data_entry.service.weight_receipt_service import WeightReceiptService
 from fpdf import FPDF
-import qrcode
-import io
 import json
 
 class PDFService:
@@ -13,6 +12,7 @@ class PDFService:
         self.slitting_service = SlittingPlanService()
         self.sales_order_service = SalesOrderService()
         self.rm_used_service = RMUsedService()
+        self.weight_receipt_service = WeightReceiptService()
 
     def get_sales_orders_for_job_card(self, start_date=None, end_date=None):
         return self.sales_order_service.get_sales_orders_for_job_card(start_date, end_date, include_designs=True)
@@ -401,4 +401,78 @@ class PDFService:
         pdf = FPDF(orientation='P', unit='mm', format='A4')
         for job_card in selected_job_cards:
             self._draw_job_card(pdf, job_card)
+        return bytes(pdf.output(dest='S'))
+
+    def generate_delivery_challan_pdf(self, data: dict) -> bytes:
+        """Generates a Delivery Challan PDF from a structured dictionary."""
+        pdf = FPDF(orientation='P', unit='mm', format='A4')
+        pdf.add_page()
+        pdf.set_auto_page_break(auto=True, margin=15)
+
+        # Header
+        pdf.set_font("Helvetica", 'B', 16)
+        pdf.cell(0, 10, "Delivery Challan Report", ln=True, align='C')
+        pdf.ln(5)
+
+        # From/To addresses
+        challan_details = data['challan_details']
+        pdf.set_font("Helvetica", '', 12)
+        pdf.cell(95, 8, "From:", ln=False)
+        pdf.cell(95, 8, f"To M/S.: {challan_details['to_customer']}", ln=True)
+        
+        pdf.set_font("Helvetica", 'B', 12)
+        pdf.cell(95, 8, challan_details['from_company']['name'], ln=True)
+        pdf.set_font("Helvetica", '', 10)
+        pdf.multi_cell(95, 5, challan_details['from_company']['address'])
+        pdf.ln(5)
+
+        # Report Details
+        pdf.cell(95, 8, f"Challan No: {challan_details['challan_no']}", ln=False)
+        pdf.cell(95, 8, f"Challan Date: {challan_details['challan_date']}", ln=True, align='R')
+        pdf.cell(0, 8, f"Vehicle No: {challan_details['vehicle_no']}", ln=True)
+        pdf.ln(5)
+
+        # Table Header
+        pdf.set_font("Helvetica", 'B', 10)
+        pdf.set_fill_color(230, 230, 230)
+        pdf.cell(40, 8, "Job No", border=1, fill=True, align='C')
+        pdf.cell(30, 8, "P O No", border=1, fill=True, align='C')
+        pdf.cell(90, 8, "Particulars", border=1, fill=True, align='C')
+        pdf.cell(30, 8, "Weight", border=1, fill=True, align='C', ln=True)
+
+        pdf.set_font("Helvetica", '', 10)
+
+        for item in data['items']:
+            # --- First line of the item block ---
+            pdf.cell(40, 8, str(item['job_no']), border='L', align='C')
+            pdf.cell(30, 8, str(item['po_no']), border='L', align='C')
+            pdf.cell(90, 8, item['line_items'][0]['description'], border='L', align='C')
+            if item['line_items'][0]['weight'] is not None:
+                pdf.cell(30, 8, f"{item['line_items'][0]['weight']:.2f}", border='LR', align='R', ln=True)
+            else:
+                pdf.cell(30, 8, "", border='LR', align='R', ln=True)
+
+            # --- Subsequent line items ---
+            for i in range(1, len(item['line_items'])):
+                pdf.cell(40, 8, "", border='L', align='C')
+                pdf.cell(30, 8, "", border='L', align='C')
+                pdf.cell(90, 8, item['line_items'][i]['description'], border='L', align='C')
+                if item['line_items'][i]['weight'] is not None:
+                    pdf.cell(30, 8, f"{item['line_items'][i]['weight']:.2f}", border='LR', align='R', ln=True)
+                else:
+                    pdf.cell(30, 8, "", border='LR', align='R', ln=True)
+
+            # --- Summary lines ---
+            pdf.cell(40, 8, "", border='L', align='C')
+            pdf.cell(30, 8, "", border='L', align='C')
+            pdf.cell(90, 8, item['summary']['material'], border='L', align='C')
+            pdf.set_font("Helvetica", 'B', 10)
+            pdf.cell(30, 8, f"{item['summary']['total_weight']:.2f}", border='LR', align='R', ln=True)
+            pdf.set_font("Helvetica", '', 10)
+
+            pdf.cell(40, 8, "", border='LB', align='C')
+            pdf.cell(30, 8, "", border='LB', align='C')
+            pdf.cell(90, 8, f"Set : {item['summary']['sets']}", border='LB', align='C')
+            pdf.cell(30, 8, "", border='LBR', align='R', ln=True)
+
         return bytes(pdf.output(dest='S'))

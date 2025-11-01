@@ -30,7 +30,7 @@ def render():
         st.warning("No available coils found.")
         return
 
-    filtered_df = render_filters(available_coils_df)
+    filtered_df, slitter = render_filters(available_coils_df)
     selected_coils = render_coil_selection(filtered_df)
-    render_slitting_plan_editor_and_summary(service, filtered_df, selected_coils, get_cached_available_coils)
+    render_slitting_plan_editor_and_summary(service, filtered_df, selected_coils, slitter, get_cached_available_coils)
     render_summary_expanders(service, available_coils_df, get_cached_material_type_options, get_cached_sales_order_summary)

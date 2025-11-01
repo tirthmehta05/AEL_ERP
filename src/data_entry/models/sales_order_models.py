@@ -15,6 +15,7 @@ class DesignDetail(BaseModel):
     grade: Optional[str] = None
     hole: str
     pcs: int
+    coating: Optional[str] = None
 
 class AssignedCoil(BaseModel):
     """Model for a single coil assigned to a Sales Order."""
@@ -32,6 +33,7 @@ class SalesOrderRequest(BaseModel):
     number_of_cores: int
     rate_per_kg: float
     header_core_stack: Optional[float] = None
+    coating: Optional[str] = None
     designs: List[DesignDetail]
     assigned_coils: Optional[List[AssignedCoil]] = None
 
@@ -39,3 +41,4 @@ class SalesOrderDropdownData(BaseModel):
     """Model for dropdown data for the Sales Order form."""
     party_names: List[str] = []
     hole_sizes: List[int] = []
+    coatings: List[str] = []
