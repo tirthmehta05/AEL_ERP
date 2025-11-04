@@ -42,3 +42,11 @@ class SalesOrderDropdownData(BaseModel):
     party_names: List[str] = []
     hole_sizes: List[int] = []
     coatings: List[str] = []
+
+class PowerAutomatePlannerRequest(BaseModel):
+    """Model for the payload sent to the Power Automate Planner flow."""
+    companyName: str
+    jobNumber: str
+    poNumber: Optional[str] = None
+    jobDate: str # Assuming YYYY-MM-DD format string
+    orderType: str = Field(default="MFG")

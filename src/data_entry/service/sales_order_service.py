@@ -1,7 +1,9 @@
 from typing import List
+import requests
+import msal
 from src.shared.utils.logger_config import setup_logger
 from src.shared.integrations.google_drive_service import google_drive_service
-from src.data_entry.models.sales_order_models import SalesOrderRequest, SalesOrderDropdownData
+from src.data_entry.models.sales_order_models import SalesOrderRequest, SalesOrderDropdownData, PowerAutomatePlannerRequest
 from src.data_entry.service.rm_used_service import RMUsedService
 from src.data_entry.models.rm_used_models import RMUsedRequest
 from config import settings
@@ -14,10 +16,13 @@ import pandas as pd
 logger = setup_logger(__name__)
 
 class SalesOrderService:
-    def __init__(self):
+    def __init__(self, pa_client_id: str, pa_client_secret: str, pa_tenant_id: str):
         self.google_service = google_drive_service
         self.spreadsheet_id = settings.api.google_sheets_id
         self.rm_used_service = RMUsedService()
+        self.pa_client_id = pa_client_id
+        self.pa_client_secret = pa_client_secret
+        self.pa_tenant_id = pa_tenant_id
 
     def generate_job_card_number(self, type: str) -> str:
         """Generates a new unique Job Card number based on the type (CRNO/CRNGO)."""
@@ -138,6 +143,47 @@ class SalesOrderService:
         except Exception as e:
             logger.error(f"Error saving sales order: {str(e)}")
             return False
+
+    def invoke_power_automate_flow(self, request: SalesOrderRequest):
+        """Invokes the Power Automate flow to create a new task in Planner."""
+        try:
+            power_automate_url = "https://default86082795378140f4a43d78edf0f958.cf.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/ab661c7ddcdf4d889726125b8c0e52d9/triggers/manual/paths/invoke?api-version=1"
+            
+            planner_request = PowerAutomatePlannerRequest(
+                companyName=request.party_name,
+                jobNumber=request.job_card_number,
+                poNumber=request.po_no,
+                jobDate=request.order_date.strftime("%Y-%m-%d"),
+                orderType="MFG"
+            )
+            data = planner_request.model_dump()
+
+            authority = f"https://login.microsoftonline.com/{self.pa_tenant_id}"
+            scope = ["https://service.flow.microsoft.com//.default"]
+
+            app = msal.ConfidentialClientApplication(
+                client_id=self.pa_client_id,
+                client_credential=self.pa_client_secret,
+                authority=authority
+            )
+
+            result = app.acquire_token_for_client(scopes=scope)
+
+            if "access_token" in result:
+                headers = {
+                    'Authorization': f'Bearer {result["access_token"]}',
+                    'Content-Type': 'application/json'
+                }
+                response = requests.post(power_automate_url, headers=headers, json=data)
+                response.raise_for_status()  # Raise an exception for bad status codes
+                logger.info(f"Successfully invoked Power Automate flow for job card {request.job_card_number}.")
+            else:
+                logger.error(f"Failed to acquire access token for Power Automate flow. Error: {result.get('error_description')}")
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error invoking Power Automate flow: {str(e)}")
+        except Exception as e:
+            logger.error(f"An unexpected error occurred during Power Automate invocation: {str(e)}")
 
     def get_sales_orders_for_job_card(self, start_date=None, end_date=None, include_designs: bool = False) -> List[dict]:
         """Fetches sales orders from the 'Sales Order-JC' sheet, optionally filtered by date."""

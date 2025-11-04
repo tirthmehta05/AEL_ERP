@@ -3,21 +3,19 @@ import pandas as pd
 from datetime import datetime, timedelta
 import json
 import time
-from src.data_entry.service.sales_order_service import SalesOrderService
-from src.data_entry.service.weight_receipt_service import WeightReceiptService
+from src.services import create_services, SalesOrderService
 from src.data_entry.models.weight_receipt_models import WeightReceiptRequest, WeighedDesignDetail
 
 def render_weight_receipt_form():
     st.markdown("<h3>Create Weight Receipt</h3>", unsafe_allow_html=True)
 
-    sales_order_service = SalesOrderService()
-    weight_receipt_service = WeightReceiptService()
+    services = create_services()
 
     @st.cache_resource(ttl=600)
     def load_so_dropdowns(_service: SalesOrderService):
         return _service.get_dropdown_data()
 
-    dropdown_data = load_so_dropdowns(sales_order_service)
+    dropdown_data = load_so_dropdowns(services.sales_order)
     party_names = dropdown_data.party_names
 
     # --- Filters ---
@@ -34,7 +32,7 @@ def render_weight_receipt_form():
         return _service.get_job_cards_for_party_and_date_range(party, start, end)
 
     if selected_party:
-        job_cards = get_cached_job_cards(sales_order_service, selected_party, start_date, end_date)
+        job_cards = get_cached_job_cards(services.sales_order, selected_party, start_date, end_date)
         
         if not job_cards:
             st.info("No Job Cards found for the selected party and date range.")
@@ -96,7 +94,7 @@ def render_weight_receipt_form():
                     )
 
                     with st.spinner("Saving Weight Receipt..."):
-                        receipt_number = weight_receipt_service.save_weight_receipt(request)
+                        receipt_number = services.weight_receipt.save_weight_receipt(request)
                         if receipt_number:
                             st.success(f"Weight Receipt {receipt_number} saved successfully!")
                             time.sleep(2)

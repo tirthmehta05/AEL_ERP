@@ -58,6 +58,7 @@ else:
             Msal.sign_in()
         st.info("Please sign in to access the application.")
     else:
+        st.session_state['auth_data'] = auth_data
         if st.sidebar.button("Sign out"):
             Msal.sign_out()
         run_app(auth_data["account"])

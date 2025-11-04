@@ -3,9 +3,11 @@ from datetime import datetime
 from pydantic import ValidationError
 import pandas as pd
 import time
+import json
 
-from src.data_entry.service.sales_order_service import SalesOrderService
-from src.slitting_plan.service.slitting_plan_service import SlittingPlanService
+from src.services import create_services
+
+from src.services import create_services, SalesOrderService
 from src.data_entry.models.sales_order_models import SalesOrderRequest, DesignDetail, AssignedCoil
 from config import settings
 from pages.sales_order_components import render_coil_assignment_fields, render_assigned_coils_table
@@ -223,6 +225,7 @@ def handle_final_submission(service: SalesOrderService):
             success = service.save_sales_order(request)
         if success:
             st.success(f"Sales Order {request.job_card_number} saved successfully!")
+            service.invoke_power_automate_flow(request)
             time.sleep(2)
             load_dropdowns.clear()
             keys_to_clear = [key for key in st.session_state.keys() if key.startswith('so_') or key.startswith('design_') or key.startswith('assign_')]
@@ -240,11 +243,10 @@ def load_dropdowns(_service: SalesOrderService):
 
 def render_sales_order_form() -> None:
     """Renders the main Sales Order entry form."""
-    sales_order_service = SalesOrderService()
-    slitting_service = SlittingPlanService()
+    services = create_services()
     initialize_session_state()
 
-    dropdown_data = load_dropdowns(sales_order_service)
+    dropdown_data = load_dropdowns(services.sales_order)
 
     render_header_fields(dropdown_data)
     
@@ -254,9 +256,9 @@ def render_sales_order_form() -> None:
         
         st.markdown("---")
         if st.checkbox("Show/Hide Coil Assignment", key="so_show_coil_assigner"):
-            render_coil_assignment_fields(slitting_service)
+            render_coil_assignment_fields(services.slitting_plan)
             render_assigned_coils_table()
         
         st.markdown("---")
         if st.button("Save Full Sales Order"):
-            handle_final_submission(sales_order_service)
+            handle_final_submission(services.sales_order)

@@ -9,6 +9,11 @@ class APISettings(BaseModel):
     google_service_account_json: Optional[str] = Field(default=None)
     google_sheets_id: Optional[str] = Field(default=None)
 
+class PowerAutomateSettings(BaseModel):
+    pa_client_id: Optional[str] = Field(default=None)
+    pa_client_secret: Optional[str] = Field(default=None)
+    pa_tenant_id: Optional[str] = Field(default=None)
+
 class StreamlitSettings(BaseModel):
     server_port: int = Field(default=8501)
     server_address: str = Field(default="0.0.0.0")
@@ -27,6 +32,7 @@ class SlittingPlanSettings(BaseModel):
 class Settings(BaseModel):
     app: AppSettings
     api: APISettings
+    power_automate: PowerAutomateSettings
     streamlit: StreamlitSettings
     constants: ConstantsSettings
     slitting_plan: SlittingPlanSettings
@@ -43,6 +49,7 @@ def load_settings() -> Settings:
     return Settings(
         app=AppSettings(**st.secrets.get("app", {})),
         api=APISettings(**st.secrets.get("api", {})),
+        power_automate=PowerAutomateSettings(**st.secrets.get("power_automate", {})),
         streamlit=StreamlitSettings(**st.secrets.get("streamlit", {})),
         constants=ConstantsSettings(**st.secrets.get("constants", {})),
         slitting_plan=SlittingPlanSettings(**st.secrets.get("slitting_plan", {})),

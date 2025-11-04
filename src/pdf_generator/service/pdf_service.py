@@ -8,9 +8,9 @@ from fpdf import FPDF
 import json
 
 class PDFService:
-    def __init__(self):
+    def __init__(self, sales_order_service: SalesOrderService):
         self.slitting_service = SlittingPlanService()
-        self.sales_order_service = SalesOrderService()
+        self.sales_order_service = sales_order_service
         self.rm_used_service = RMUsedService()
         self.weight_receipt_service = WeightReceiptService()
 
@@ -215,41 +215,47 @@ class PDFService:
         plate_y = y + padding
         hole_radius = 1.5
 
-        # Plate color
-        pdf.set_fill_color(200, 200, 200) # Light gray
-        pdf.rect(plate_x, plate_y, plate_width, plate_height, 'F')
+        # Set line width for bold lines
+        pdf.set_line_width(0.5)
+        pdf.set_draw_color(0, 0, 0) # Black
 
-        # Hole color
-        pdf.set_fill_color(255, 255, 255) # White
+        # Draw the plate outline
+        pdf.rect(plate_x, plate_y, plate_width, plate_height, 'D') # 'D' for draw
+
+        # Set fill color to white to draw on top of any existing background
+        pdf.set_fill_color(255, 255, 255)
 
         if str.lower(hole_type) == "side":
             circle_x = plate_x + plate_width * 0.25
             circle_y = plate_y + plate_height / 2
-            pdf.ellipse(circle_x - hole_radius, circle_y - hole_radius, hole_radius * 2, hole_radius * 2, 'F')
+            pdf.ellipse(circle_x - hole_radius, circle_y - hole_radius, hole_radius * 2, hole_radius * 2, 'D')
         elif str.lower(hole_type) == "both side":
             circle_y = plate_y + plate_height / 2
             # Left
             l_circle_x = plate_x + plate_width * 0.25
-            pdf.ellipse(l_circle_x - hole_radius, circle_y - hole_radius, hole_radius * 2, hole_radius * 2, 'F')
+            pdf.ellipse(l_circle_x - hole_radius, circle_y - hole_radius, hole_radius * 2, hole_radius * 2, 'D')
             # Right
             r_circle_x = plate_x + plate_width * 0.75
-            pdf.ellipse(r_circle_x - hole_radius, circle_y - hole_radius, hole_radius * 2, hole_radius * 2, 'F')
+            pdf.ellipse(r_circle_x - hole_radius, circle_y - hole_radius, hole_radius * 2, hole_radius * 2, 'D')
         elif str.lower(hole_type) == "centre":
             circle_x = plate_x + plate_width / 2
             circle_y = plate_y + plate_height / 2
-            pdf.ellipse(circle_x - hole_radius, circle_y - hole_radius, hole_radius * 2, hole_radius * 2, 'F')
+            pdf.ellipse(circle_x - hole_radius, circle_y - hole_radius, hole_radius * 2, hole_radius * 2, 'D')
         elif str.lower(hole_type) == "3-hole":
             circle_y = plate_y + plate_height / 2
             positions = [0.25, 0.5, 0.75]
             for pos in positions:
                 circle_x = plate_x + plate_width * pos
-                pdf.ellipse(circle_x - hole_radius, circle_y - hole_radius, hole_radius * 2, hole_radius * 2, 'F')
+                pdf.ellipse(circle_x - hole_radius, circle_y - hole_radius, hole_radius * 2, hole_radius * 2, 'D')
         elif str.lower(hole_type) == "5-hole":
             circle_y = plate_y + plate_height / 2
             positions = [0.15, 0.325, 0.5, 0.675, 0.85]
             for pos in positions:
                 circle_x = plate_x + plate_width * pos
-                pdf.ellipse(circle_x - hole_radius, circle_y - hole_radius, hole_radius * 2, hole_radius * 2, 'F')
+                pdf.ellipse(circle_x - hole_radius, circle_y - hole_radius, hole_radius * 2, hole_radius * 2, 'D')
+        
+        # Reset line width to default
+        pdf.set_line_width(0.2)
 
     def _draw_items_table_header(self, pdf: FPDF, job_card_data: dict):
         pdf.set_font("Helvetica", 'B', 10)

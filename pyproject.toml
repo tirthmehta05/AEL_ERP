@@ -25,6 +25,7 @@ dependencies = [
     "requests==2.32.3",
     "urllib3==2.2.3",
     "streamlit-msal",
+    "msal",
     "gspread",
     "google-auth-oauthlib",
     "altair==5.3.0",
