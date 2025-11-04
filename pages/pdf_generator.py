@@ -1,20 +1,16 @@
+import json
 import streamlit as st
 import pandas as pd
-from src.pdf_generator.service.pdf_service import PDFService
-from src.slitting_plan.service.slitting_plan_service import SlittingPlanService
-from src.data_entry.service.sales_order_service import SalesOrderService
-from src.data_entry.service.weight_receipt_service import WeightReceiptService
+from src.services import create_services, AppServices
 from datetime import datetime, timedelta
-import json
 
-def render_coil_sticker_tab():
+def render_coil_sticker_tab(services: AppServices):
     """Renders the UI for the Coil Sticker tab."""
     st.header("Coil Sticker Generation")
-    pdf_service = PDFService()
 
     @st.cache_data
     def get_available_coils():
-        return pdf_service.get_available_coils_for_sticker()
+        return services.pdf.get_available_coils_for_sticker()
 
     available_coils_df = get_available_coils()
 
@@ -35,7 +31,7 @@ def render_coil_sticker_tab():
         st.write(f"{len(selected_coils)} coil(s) selected.")
         if st.button("Generate Stickers (PDF)"):
             with st.spinner("Generating PDF..."):
-                pdf_output = pdf_service.generate_sticker_pdf(selected_coils)
+                pdf_output = services.pdf.generate_sticker_pdf(selected_coils)
                 st.download_button(
                     label="Download PDF",
                     data=pdf_output,
@@ -43,16 +39,13 @@ def render_coil_sticker_tab():
                     mime="application/pdf"
                 )
 
-def render_slitting_plan_tab():
+def render_slitting_plan_tab(services: AppServices):
     """Renders the UI for the Slitting Plan tab."""
     st.header("Slitting Plan PDF Generation")
     
-    slitting_service = SlittingPlanService()
-    pdf_service = PDFService()
-
     @st.cache_data
     def get_printable_plans():
-        return slitting_service.get_printable_plans()
+        return services.slitting_plan.get_printable_plans()
 
     printable_plans = get_printable_plans()
 
@@ -63,7 +56,7 @@ def render_slitting_plan_tab():
     selected_plan_id = st.selectbox("Select a Slitting Plan to Print", options=["None"] + printable_plans)
 
     if selected_plan_id and selected_plan_id != "None":
-        plan_details = slitting_service.get_saved_plan_details(selected_plan_id)
+        plan_details = services.slitting_plan.get_saved_plan_details(selected_plan_id)
 
         if not plan_details:
             st.error(f"Could not retrieve details for plan {selected_plan_id}.")
@@ -77,8 +70,8 @@ def render_slitting_plan_tab():
 
         if st.button("Generate PDF for this Plan"):
             with st.spinner("Generating PDF and updating status..."):
-                pdf_output = pdf_service.generate_slitting_plan_pdf(plan_details)
-                success = slitting_service.update_plan_status(selected_plan_id, "In Process")
+                pdf_output = services.pdf.generate_slitting_plan_pdf(plan_details)
+                success = services.slitting_plan.update_plan_status(selected_plan_id, "In Process")
 
                 if success:
                     st.success("Status updated to 'In Process'.")
@@ -93,18 +86,14 @@ def render_slitting_plan_tab():
                     mime="application/pdf"
                 )
 
-def render_delivery_challan_tab():
+def render_delivery_challan_tab(services: AppServices):
     """Renders the UI for the Delivery Challan tab."""
     st.header("Delivery Challan Generation")
     
-    pdf_service = PDFService()
-    weight_receipt_service = WeightReceiptService()
-    sales_order_service = SalesOrderService()
-
     # --- Filters ---
     col1, col2, col3 = st.columns(3)
     with col1:
-        party_names = sales_order_service.get_dropdown_data().party_names
+        party_names = services.sales_order.get_dropdown_data().party_names
         selected_party = st.selectbox("Select Party", options=[""] + party_names, key="dc_party")
     with col2:
         start_date = st.date_input("Start Date", datetime.now() - timedelta(days=30), key="dc_start_date")
@@ -112,7 +101,7 @@ def render_delivery_challan_tab():
         end_date = st.date_input("End Date", datetime.now(), key="dc_end_date")
 
     if selected_party:
-        receipts = weight_receipt_service.get_weight_receipts_for_party_and_date_range(selected_party, start_date, end_date)
+        receipts = services.weight_receipt.get_weight_receipts_for_party_and_date_range(selected_party, start_date, end_date)
         
         if not receipts:
             st.info("No Weight Receipts found for the selected party and date range.")
@@ -186,7 +175,7 @@ def render_delivery_challan_tab():
                 challan_data = _prepare_challan_data(selected_receipts)
 
                 with st.spinner("Generating PDF..."):
-                    pdf_output = pdf_service.generate_delivery_challan_pdf(challan_data)
+                    pdf_output = services.pdf.generate_delivery_challan_pdf(challan_data)
                     st.download_button(
                         label="Download Delivery Challan",
                         data=pdf_output,
@@ -194,31 +183,30 @@ def render_delivery_challan_tab():
                         mime="application/pdf"
                     )
 
-
 def render_pdf_generator_page():
     """Renders the main PDF Generator page with tabs."""
     st.title("📄 PDF Generator")
+
+    services = create_services()
     
     tab1, tab2, tab3, tab4 = st.tabs(["Coil Sticker", "Slitting Plan", "Job Card", "Delivery Challan"]) # Add new tab
 
     with tab1:
-        render_coil_sticker_tab()
+        render_coil_sticker_tab(services)
     
     with tab2:
-        render_slitting_plan_tab()
+        render_slitting_plan_tab(services)
 
     with tab3:
-        render_job_card_tab()
+        render_job_card_tab(services)
     
     with tab4:
-        render_delivery_challan_tab()
+        render_delivery_challan_tab(services)
 
-def render_job_card_tab():
+def render_job_card_tab(services: AppServices):
     """Renders the UI for the Job Card tab."""
     st.header("Job Card PDF Generation")
     
-    pdf_service = PDFService()
-
     # Date range filter
     col1, col2 = st.columns(2)
     with col1:
@@ -228,7 +216,7 @@ def render_job_card_tab():
 
     @st.cache_data
     def get_job_cards(start, end):
-        return pdf_service.get_sales_orders_for_job_card(start_date=start, end_date=end)
+        return services.pdf.get_sales_orders_for_job_card(start_date=start, end_date=end)
 
     job_cards_data = get_job_cards(start_date, end_date)
 
@@ -256,13 +244,10 @@ def render_job_card_tab():
         if st.button("Generate Job Card PDF"):
             with st.spinner("Generating PDF..."):
                 selected_job_cards_data = job_cards_df.loc[selected_indices].to_dict('records')
-                pdf_output = pdf_service.generate_job_card_pdf(selected_job_cards_data)
+                pdf_output = services.pdf.generate_job_card_pdf(selected_job_cards_data)
                 st.download_button(
                     label="Download Job Card PDF",
                     data=pdf_output,
                     file_name="job_cards.pdf",
                     mime="application/pdf"
                 )
-
-# Entry point, called from main.py
-# render_pdf_generator_page()
