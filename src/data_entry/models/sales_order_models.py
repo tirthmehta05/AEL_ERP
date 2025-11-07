@@ -36,6 +36,7 @@ class SalesOrderRequest(BaseModel):
     coating: Optional[str] = None
     designs: List[DesignDetail]
     assigned_coils: Optional[List[AssignedCoil]] = None
+    run_child_flow: Optional[bool] = None
 
 class SalesOrderDropdownData(BaseModel):
     """Model for dropdown data for the Sales Order form."""
@@ -50,3 +51,4 @@ class PowerAutomatePlannerRequest(BaseModel):
     poNumber: Optional[str] = None
     jobDate: str # Assuming YYYY-MM-DD format string
     orderType: str = Field(default="MFG")
+    runChildFlow: bool = Field(default=False)

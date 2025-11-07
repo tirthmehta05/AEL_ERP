@@ -80,9 +80,27 @@ class SalesOrderService:
             return SalesOrderDropdownData()
 
     def save_sales_order(self, request: SalesOrderRequest) -> bool:
-        """Saves a new sales order entry to the 'Sales Order-JC' sheet and the 'Sales Order' sheet."""
+        """Saves a new sales order entry, determines child flow status, and saves to sheets."""
         try:
             request.job_card_number = self.generate_job_card_number(request.designs[0].type)
+
+            # Determine run_child_flow status before saving
+            request.run_child_flow = False
+            if request.po_no:
+                try:
+                    df = self.google_service.get_worksheet_data(self.spreadsheet_id, "Sales Order-JC", header_row=1)
+                    if df.empty or 'po_no' not in df.columns or 'party_name' not in df.columns:
+                        request.run_child_flow = True
+                    else:
+                        matching_orders = df[
+                            (df['po_no'] == request.po_no) &
+                            (df['party_name'] == request.party_name)
+                        ]
+                        if matching_orders.empty:
+                            request.run_child_flow = True
+                except Exception as e:
+                    logger.error(f"Could not determine runChildFlow status due to error: {e}. Defaulting to False.")
+                    request.run_child_flow = False
 
             worksheet_name_jc = "Sales Order-JC"
             headers_jc = [
@@ -154,7 +172,8 @@ class SalesOrderService:
                 jobNumber=request.job_card_number,
                 poNumber=request.po_no,
                 jobDate=request.order_date.strftime("%Y-%m-%d"),
-                orderType="MFG"
+                orderType="MFG",
+                runChildFlow=request.run_child_flow or False
             )
             data = planner_request.model_dump()
 
