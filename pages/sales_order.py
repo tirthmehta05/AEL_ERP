@@ -12,6 +12,27 @@ from src.data_entry.models.sales_order_models import SalesOrderRequest, DesignDe
 from config import settings
 from pages.sales_order_components import render_coil_assignment_fields, render_assigned_coils_table
 
+# --- FM Data ---
+FM_DATA = {
+    "T-3": {"width": 55.2, "length": 127},
+    "T-15": {"width": 76.2, "length": 101.6},
+    "T-16": {"width": 114.2, "length": 152.4},
+    "T-43": {"width": 152.4, "length": 203.2},
+    "T-180": {"width": 180, "length": 240},
+    "T-12": {"width": 47.6, "length": 63.5},
+    "T-23": {"width": 57.1, "length": 76.2},
+    "T-30 (P)": {"width": 60, "length": 80},
+    "T-74": {"width": 53.9, "length": 69.85},
+    "T-30 (H)": {"width": 60, "length": 80},
+    "T-17": {"width": 38, "length": 50.8},
+    "T-8B": {"width": 235, "length": 317.5},
+    "T-6": {"width": 127, "length": 190.5},
+    "T-8": {"width": 184, "length": 292},
+    "T-31": {"width": 66.6, "length": 88.9},
+    "T-33": {"width": 44, "length": 112},
+    "T-41": {"width": 41.2, "length": 53.9},
+}
+
 # --- Helper Functions --- #
 
 def initialize_session_state():
@@ -30,6 +51,8 @@ def initialize_session_state():
         st.session_state.so_grade = ""
     if 'so_coating' not in st.session_state:
         st.session_state.so_coating = ""
+    if 'so_is_ready_entry' not in st.session_state:
+        st.session_state.so_is_ready_entry = False
 
     # Initialize design keys to prevent errors on first run
     design_keys = ['design_width', 'design_length', 'design_weight', 
@@ -45,6 +68,17 @@ def initialize_session_state():
                 st.session_state[key] = 1
             else:
                 st.session_state[key] = ""
+
+    # New keys for ready entry form
+    ready_keys = ['ready_card_no', 'ready_fm_name', 'ready_type']
+    for key in ready_keys:
+        if key not in st.session_state:
+            st.session_state[key] = ""
+    
+    if 'ready_thk' not in st.session_state:
+        st.session_state.ready_thk = 0.0
+    if 'ready_weight' not in st.session_state:
+        st.session_state.ready_weight = 0.0
 
 def render_header_fields(dropdown_data):
     """Renders the main header fields for the sales order form."""
@@ -170,6 +204,75 @@ def add_design_to_state():
     except Exception as e:
         st.error(f"An error occurred: {e}")
 
+def add_ready_design_to_state(width, length):
+    """Validates the current ready design and adds it to the session state list."""
+    try:
+        weight = st.session_state.ready_weight
+        if weight <= 0: raise ValueError("Weight must be greater than zero.")
+        
+        thk_mm = st.session_state.ready_thk
+        if thk_mm <= 0: raise ValueError("Thickness must be greater than zero.")
+        
+        if width <= 0 or length <= 0: raise ValueError("Width and Length must be selected via FM Name.")
+
+        design = DesignDetail(
+            party_job_no=st.session_state.ready_card_no or f"RN-{int(time.time())}",
+            width=width, 
+            length=length,
+            weight=weight, 
+            thk=thk_mm,
+            type=st.session_state.ready_type, 
+            # Set other required fields to sensible defaults for "Ready" type
+            mm_stack=None,
+            pcs=0,
+            hole="Ready Entry",
+            sets=1,
+            grade=st.session_state.so_grade or None,
+            coating=st.session_state.so_coating or None,
+        )
+        st.session_state.so_designs.append(design.model_dump())
+        st.success("Ready Design added to the Job Card.")
+    except (ValueError, ZeroDivisionError) as e:
+        st.error(f"Calculation Error: {e}")
+    except Exception as e:
+        st.error(f"An error occurred: {e}")
+
+def render_ready_design_entry_fields():
+    """Renders the fields for adding a single ready design detail."""
+    st.markdown("--- ")
+    st.markdown("<h5>Add Design Details (Ready)</h5>", unsafe_allow_html=True)
+
+    # Fetch the next ready card number if it's not already in the session
+    if 'ready_card_no_generated' not in st.session_state:
+        services = create_services()
+        st.session_state.ready_card_no_generated = services.sales_order.get_next_ready_card_number()
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.text_input("Card No.", value=st.session_state.ready_card_no_generated, key="ready_card_no", disabled=True)
+        fm_name = st.selectbox("FM Name", options=[""] + list(FM_DATA.keys()), key="ready_fm_name")
+
+    width = 0.0
+    length = 0.0
+    if fm_name:
+        width = FM_DATA[fm_name]["width"]
+        length = FM_DATA[fm_name]["length"]
+
+    with col2:
+        st.number_input("Width (mm)", value=width, disabled=True, format="%.2f", key="ready_width_display")
+        st.number_input("Length (mm)", value=length, disabled=True, format="%.2f", key="ready_length_display")
+
+    with col3:
+        st.number_input("Thickness (mm)", min_value=0.0, step=0.01, format="%.2f", key="ready_thk")
+        st.number_input("Weight (kg)", min_value=0.0, step=1.0, format="%.2f", key="ready_weight")
+
+    with col4:
+        st.selectbox("Type", options=["CRNO", "CRGO"], key="ready_type")
+
+    if st.button("Add Ready Design to Order"):
+        add_ready_design_to_state(width, length)
+
 def render_designs_table():
     """Renders the table of added designs."""
     if st.session_state.so_designs:
@@ -228,7 +331,8 @@ def handle_final_submission(service: SalesOrderService):
             service.invoke_power_automate_flow(request)
             time.sleep(2)
             load_dropdowns.clear()
-            keys_to_clear = [key for key in st.session_state.keys() if key.startswith('so_') or key.startswith('design_') or key.startswith('assign_')]
+            # Clear all relevant session state keys
+            keys_to_clear = [key for key in st.session_state.keys() if key.startswith('so_') or key.startswith('design_') or key.startswith('assign_') or key.startswith('ready_')]
             for key in keys_to_clear:
                 if key in st.session_state: del st.session_state[key]
             st.rerun()
@@ -243,6 +347,14 @@ def load_dropdowns(_service: SalesOrderService):
 
 def render_sales_order_form() -> None:
     """Renders the main Sales Order entry form."""
+    if st.session_state.get('clear_cache_for_data_entry'):
+        st.session_state['clear_cache_for_data_entry'] = False
+        try:
+            load_dropdowns.clear()
+            st.toast("Sales Order cache cleared!")
+        except NameError:
+            pass
+
     services = create_services()
     initialize_session_state()
 
@@ -250,8 +362,14 @@ def render_sales_order_form() -> None:
 
     render_header_fields(dropdown_data)
     
+    st.checkbox("Entry Type: Ready", key="so_is_ready_entry")
+    
     if st.session_state.get("so_party_name"):
-        render_design_entry_fields()
+        if st.session_state.so_is_ready_entry:
+            render_ready_design_entry_fields()
+        else:
+            render_design_entry_fields()
+        
         render_designs_table()
         
         st.markdown("---")

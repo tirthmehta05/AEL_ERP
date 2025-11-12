@@ -1,5 +1,7 @@
+import io
 from typing import List
 import pandas as pd
+import qrcode
 from src.slitting_plan.service.slitting_plan_service import SlittingPlanService
 from src.data_entry.service.sales_order_service import SalesOrderService
 from src.data_entry.service.rm_used_service import RMUsedService
@@ -253,6 +255,8 @@ class PDFService:
             for pos in positions:
                 circle_x = plate_x + plate_width * pos
                 pdf.ellipse(circle_x - hole_radius, circle_y - hole_radius, hole_radius * 2, hole_radius * 2, 'D')
+        elif str.lower(hole_type) == "ready entry": # Handle "Ready Entry" by drawing no holes
+            pass
         
         # Reset line width to default
         pdf.set_line_width(0.2)
@@ -366,8 +370,8 @@ class PDFService:
             pdf.rect(hole_cell_x, hole_cell_y, hole_cell_width, row_height)
             pdf.set_x(hole_cell_x + hole_cell_width)
 
-            pdf.cell(30, row_height, str(item.get('mm_stack','N/A')), border=1, align='C')
-            pdf.cell(30, row_height, str(item.get('pcs','N/A')), border=1, align='C')
+            pdf.cell(30, row_height, "" if item.get('mm_stack') is None else str(item.get('mm_stack')), border=1, align='C')
+            pdf.cell(30, row_height, "" if item.get('pcs') == 0 else str(item.get('pcs')), border=1, align='C')
             
             weight = 0
             try:
