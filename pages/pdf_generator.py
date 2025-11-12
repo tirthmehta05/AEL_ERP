@@ -4,15 +4,30 @@ import pandas as pd
 from src.services import create_services, AppServices
 from datetime import datetime, timedelta
 
+# --- Top-level Cached Functions ---
+
+@st.cache_data
+def get_available_coils(_services: AppServices):
+    """Cached function to fetch available coils."""
+    return _services.pdf.get_available_coils_for_sticker()
+
+@st.cache_data
+def get_printable_plans(_services: AppServices):
+    """Cached function to fetch printable slitting plans."""
+    return _services.slitting_plan.get_printable_plans()
+
+@st.cache_data
+def get_job_cards(_services: AppServices, start, end):
+    """Cached function to fetch job card data."""
+    return _services.pdf.get_sales_orders_for_job_card(start_date=start, end_date=end)
+
+# --- Tab Rendering Functions ---
+
 def render_coil_sticker_tab(services: AppServices):
     """Renders the UI for the Coil Sticker tab."""
     st.header("Coil Sticker Generation")
 
-    @st.cache_data
-    def get_available_coils():
-        return services.pdf.get_available_coils_for_sticker()
-
-    available_coils_df = get_available_coils()
+    available_coils_df = get_available_coils(services)
 
     if available_coils_df.empty:
         st.warning("No available coils found.")
@@ -43,11 +58,7 @@ def render_slitting_plan_tab(services: AppServices):
     """Renders the UI for the Slitting Plan tab."""
     st.header("Slitting Plan PDF Generation")
     
-    @st.cache_data
-    def get_printable_plans():
-        return services.slitting_plan.get_printable_plans()
-
-    printable_plans = get_printable_plans()
+    printable_plans = get_printable_plans(services)
 
     if not printable_plans:
         st.warning("No printable slitting plans found with status 'Created' or 'In Process'.")
@@ -183,26 +194,6 @@ def render_delivery_challan_tab(services: AppServices):
                         mime="application/pdf"
                     )
 
-def render_pdf_generator_page():
-    """Renders the main PDF Generator page with tabs."""
-    st.title("📄 PDF Generator")
-
-    services = create_services()
-    
-    tab1, tab2, tab3, tab4 = st.tabs(["Coil Sticker", "Slitting Plan", "Job Card", "Delivery Challan"]) # Add new tab
-
-    with tab1:
-        render_coil_sticker_tab(services)
-    
-    with tab2:
-        render_slitting_plan_tab(services)
-
-    with tab3:
-        render_job_card_tab(services)
-    
-    with tab4:
-        render_delivery_challan_tab(services)
-
 def render_job_card_tab(services: AppServices):
     """Renders the UI for the Job Card tab."""
     st.header("Job Card PDF Generation")
@@ -214,11 +205,7 @@ def render_job_card_tab(services: AppServices):
     with col2:
         end_date = st.date_input("End Date", datetime.now())
 
-    @st.cache_data
-    def get_job_cards(start, end):
-        return services.pdf.get_sales_orders_for_job_card(start_date=start, end_date=end)
-
-    job_cards_data = get_job_cards(start_date, end_date)
+    job_cards_data = get_job_cards(services, start_date, end_date)
 
     if not job_cards_data:
         st.warning("No job cards found for the selected date range.")
@@ -251,3 +238,33 @@ def render_job_card_tab(services: AppServices):
                     file_name="job_cards.pdf",
                     mime="application/pdf"
                 )
+
+def render_pdf_generator_page():
+    """Renders the main PDF Generator page with tabs."""
+    st.title("📄 PDF Generator")
+
+    if st.session_state.get('clear_cache_for_pdf_generator'):
+        st.session_state['clear_cache_for_pdf_generator'] = False
+        try:
+            get_available_coils.clear()
+            get_printable_plans.clear()
+            get_job_cards.clear()
+            st.toast("PDF Generator cache cleared!")
+        except NameError: # Functions might not be defined if tabs are not rendered
+            pass
+
+    services = create_services()
+    
+    tab1, tab2, tab3, tab4 = st.tabs(["Coil Sticker", "Slitting Plan", "Job Card", "Delivery Challan"]) # Add new tab
+
+    with tab1:
+        render_coil_sticker_tab(services)
+    
+    with tab2:
+        render_slitting_plan_tab(services)
+
+    with tab3:
+        render_job_card_tab(services)
+    
+    with tab4:
+        render_delivery_challan_tab(services)

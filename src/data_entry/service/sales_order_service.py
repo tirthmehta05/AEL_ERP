@@ -53,6 +53,40 @@ class SalesOrderService:
             # Fallback to a safe, but different, format to avoid duplicates
             return f"{prefix}{datetime.now().strftime('%y%m%d%H%M%S')}"
 
+    def get_next_ready_card_number(self) -> str:
+        """Generates the next sequential 'Ready' card number (e.g., RN-1460)."""
+        prefix = "RN-"
+        start_number = 1460
+
+        try:
+            # Reusing the same sheet as it contains all job/card numbers
+            df = self.google_service.get_worksheet_data(self.spreadsheet_id, "Sales Order-JC", header_row=1)
+            if df.empty or 'job_card_number' not in df.columns:
+                return f"{prefix}{start_number}"
+
+            # In the future, 'ready_card_no' might be in its own column.
+            # For now, we assume they are stored in the 'party_job_no' column of the designs_json
+            # or we need a unified column for all card numbers.
+            # Let's assume for now they are stored in the main job_card_number for simplicity of lookup.
+            # This part needs clarification on where RN- numbers are stored.
+            # Assuming they are stored in the same 'job_card_number' column for this implementation.
+            
+            jc_series = df['job_card_number'][df['job_card_number'].str.startswith(prefix, na=False)]
+
+            if jc_series.empty:
+                return f"{prefix}{start_number}"
+
+            max_num = jc_series.str.split('-').str[1].astype(int).max()
+            
+            if max_num < start_number:
+                return f"{prefix}{start_number}"
+
+            next_num = max_num + 1
+            return f"{prefix}{next_num}"
+        except Exception as e:
+            logger.error(f"Error generating ready card number: {str(e)}")
+            return f"{prefix}{datetime.now().strftime('%y%m%d%H%M%S')}"
+
 
     def get_dropdown_data(self) -> SalesOrderDropdownData:
         """Fetches dropdown data for the Sales Order form."""
@@ -82,7 +116,18 @@ class SalesOrderService:
     def save_sales_order(self, request: SalesOrderRequest) -> bool:
         """Saves a new sales order entry, determines child flow status, and saves to sheets."""
         try:
-            request.job_card_number = self.generate_job_card_number(request.designs[0].type)
+            # Determine if the order is for a "Ready" item
+            is_ready_order = False
+            if request.designs and request.designs[0].hole == "Ready Entry":
+                is_ready_order = True
+
+            if is_ready_order:
+                # For Ready orders, the card number is already generated on the frontend
+                # and stored in the party_job_no of the first design.
+                request.job_card_number = request.designs[0].party_job_no
+            else:
+                # For standard orders, generate a new job card number
+                request.job_card_number = self.generate_job_card_number(request.designs[0].type)
 
             # Determine run_child_flow status before saving
             request.run_child_flow = False
