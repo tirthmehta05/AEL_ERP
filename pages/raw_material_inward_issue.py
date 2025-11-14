@@ -329,6 +329,7 @@ def render_raw_material_inward_issue_form() -> None:
 
                 mapping = st.session_state.get("column_mapping", {})
                 auto_generate_coil = st.session_state.get('bulk_auto_generate_coil', False)
+                user_email = st.session_state['user_info']['username']
                 options = {"user_email": user_email, "auto_generate_coil": auto_generate_coil, "group_by_col": group_by_col}
                 existing_coils = set(c.lower() for c in dropdowns.coil_numbers)
                 valid_requests, failed_records = data_service.process_bulk_upload_df(processing_df, mapping, options, existing_coils)
@@ -355,4 +356,6 @@ def render_raw_material_inward_issue_form() -> None:
 
                 if failed_records:
                     st.warning(f"Found {len(failed_records)} records with validation errors that were not submitted.")
-                    st.dataframe(pd.DataFrame(failed_records))
+                    failed_df = pd.DataFrame(failed_records)
+                    failed_df['Row'] = failed_df['Row'].astype(str)
+                    st.dataframe(failed_df)

@@ -21,6 +21,17 @@ def get_cached_sales_order_summary(_service, start_date, end_date, material_type
     return _service.get_sales_order_summary(start_date, end_date, material_type)
 
 def render():
+    """Renders the main Slitting Plan page."""
+    if st.session_state.get('clear_cache_for_slitting_plan'):
+        st.session_state['clear_cache_for_slitting_plan'] = False
+        try:
+            get_cached_available_coils.clear()
+            get_cached_material_type_options.clear()
+            get_cached_sales_order_summary.clear()
+            st.toast("Slitting Plan cache cleared!")
+        except NameError:
+            pass
+
     st.markdown("<h1 class='main-header'>Slitting Plan</h1>", unsafe_allow_html=True)
 
     service = SlittingPlanService()
