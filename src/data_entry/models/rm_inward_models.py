@@ -1,13 +1,17 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, BeforeValidator
 from datetime import date
-from typing import List, Optional
+from typing import List, Optional, Annotated
+
+def force_str(v: any) -> str:
+    """Coerces a value to a stripped string."""
+    return str(v).strip()
 
 class RMInwardIssueRequest(BaseModel):
     """Request model for creating a new RM Inward Issue"""
 
     rm_receipt_date: date = Field(..., description="RM Receipt Date")
     rm_type: str = Field(..., min_length=1, description="RM Type")
-    coil_number: str = Field(..., min_length=1, description="Coil Number")
+    coil_number: Annotated[str, BeforeValidator(force_str)] = Field(..., min_length=1, description="Coil Number")
     grade: str = Field(..., min_length=1, description="Grade")
     thk: float = Field(..., gt=0, description="Thk")
     width: int = Field(..., gt=0, description="Width")
@@ -26,7 +30,6 @@ class RMInwardIssueRequest(BaseModel):
 
     @field_validator(
         "rm_type",
-        "coil_number",
         "grade",
         "coating",
         "coil_supplier",

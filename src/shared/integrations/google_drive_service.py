@@ -7,9 +7,12 @@ Supports both file-based and environment variable credentials
 import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
-from typing import List, Any
+from typing import List, Any, Callable
 import os
 import json
+import time
+import random
+from gspread.exceptions import APIError
 from src.shared.utils.logger_config import setup_logger
 from config import settings
 logger = setup_logger(__name__)
@@ -36,14 +39,46 @@ class GoogleDriveService:
     2. File-based: Place service account JSON at credentials/service-account-key.json
     """
     
-    def __init__(self):
+    def __init__(self, max_retries: int = 5, initial_backoff: float = 1.0, max_backoff: float = 60.0):
         self.scope = [
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive",
         ]
         self.credentials = None
         self.client = None
+        self.max_retries = max_retries
+        self.initial_backoff = initial_backoff
+        self.max_backoff = max_backoff
         self._initialize_client()
+
+    def _execute_with_retry(self, func: Callable, *args, **kwargs) -> Any:
+        """Executes a gspread function with retry logic for rate limiting."""
+        retries = 0
+        backoff = self.initial_backoff
+        while retries < self.max_retries:
+            try:
+                return func(*args, **kwargs)
+            except APIError as e:
+                # Specifically handle 429: Too Many Requests
+                if e.response.status_code == 429:
+                    retries += 1
+                    if retries >= self.max_retries:
+                        logger.error(f"API rate limit exceeded. Max retries reached. Failing after {self.max_retries} attempts.")
+                        raise
+                    
+                    # Exponential backoff with jitter
+                    sleep_time = backoff + random.uniform(0, 1)
+                    logger.warning(f"API rate limit exceeded. Retrying in {sleep_time:.2f} seconds... (Attempt {retries}/{self.max_retries})")
+                    time.sleep(sleep_time)
+                    backoff = min(self.max_backoff, backoff * 2)
+                else:
+                    # Re-raise other API errors immediately
+                    raise
+            except Exception:
+                # Re-raise non-gspread exceptions
+                raise
+        # This line should not be reached if max_retries is > 0
+        raise Exception("Exited retry loop unexpectedly.")
 
     def _initialize_client(self):
         """Initialize Google Sheets client using environment variables or file"""
@@ -96,10 +131,10 @@ class GoogleDriveService:
             if not self.client:
                 raise Exception("Google Drive client not initialized")
 
-            spreadsheet = self.client.open_by_key(spreadsheet_id)
-            worksheet = spreadsheet.worksheet(worksheet_name)
+            spreadsheet = self._execute_with_retry(self.client.open_by_key, spreadsheet_id)
+            worksheet = self._execute_with_retry(spreadsheet.worksheet, worksheet_name)
 
-            all_values = worksheet.get_all_values()
+            all_values = self._execute_with_retry(worksheet.get_all_values)
             if len(all_values) < header_row:
                 return pd.DataFrame()
 
@@ -111,8 +146,8 @@ class GoogleDriveService:
 
             return df
 
-        except gspread.exceptions.GSpreadException as e:
-            logger.error(f"Error reading worksheet '{worksheet_name}' with gspread: {str(e)}")
+        except APIError as e:
+            logger.error(f"A gspread API error occurred while reading '{worksheet_name}': {str(e)}")
             return pd.DataFrame()
         except Exception as e:
             logger.error(f"An unexpected error occurred while reading worksheet '{worksheet_name}': {str(e)}")
@@ -143,13 +178,16 @@ class GoogleDriveService:
             if not self.client:
                 raise Exception("Google Drive client not initialized")
 
-            spreadsheet = self.client.open_by_key(spreadsheet_id)
-            worksheet = spreadsheet.worksheet(worksheet_name)
+            spreadsheet = self._execute_with_retry(self.client.open_by_key, spreadsheet_id)
+            worksheet = self._execute_with_retry(spreadsheet.worksheet, worksheet_name)
 
             # Append the new row with USER_ENTERED value input option
-            worksheet.append_rows(data, value_input_option='USER_ENTERED')
+            self._execute_with_retry(worksheet.append_rows, data, value_input_option='USER_ENTERED')
             return True
 
+        except APIError as e:
+            logger.error(f"A gspread API error occurred while appending to '{worksheet_name}': {str(e)}")
+            return False
         except Exception as e:
             logger.error(f"Error appending data to '{worksheet_name}': {str(e)}")
             return False
@@ -162,17 +200,20 @@ class GoogleDriveService:
             if not self.client:
                 raise Exception("Google Drive client not initialized")
 
-            spreadsheet = self.client.open_by_key(spreadsheet_id)
-            worksheet = spreadsheet.worksheet(worksheet_name)
+            spreadsheet = self._execute_with_retry(self.client.open_by_key, spreadsheet_id)
+            worksheet = self._execute_with_retry(spreadsheet.worksheet, worksheet_name)
 
             # Get all values to find the last row with content
-            all_values = worksheet.get_all_values()
+            all_values = self._execute_with_retry(worksheet.get_all_values)
             last_row_index = len(all_values)
 
             # Insert the new rows before the last row
-            worksheet.insert_rows(data, row=last_row_index, value_input_option='USER_ENTERED')
+            self._execute_with_retry(worksheet.insert_rows, data, row=last_row_index, value_input_option='USER_ENTERED')
             return True
 
+        except APIError as e:
+            logger.error(f"A gspread API error occurred while inserting rows in '{worksheet_name}': {str(e)}")
+            return False
         except Exception as e:
             logger.error(f"Error inserting rows in '{worksheet_name}': {str(e)}")
             return False
@@ -185,13 +226,16 @@ class GoogleDriveService:
             if not self.client:
                 raise Exception("Google Drive client not initialized")
 
-            spreadsheet = self.client.open_by_key(spreadsheet_id)
-            worksheet = spreadsheet.worksheet(worksheet_name)
+            spreadsheet = self._execute_with_retry(self.client.open_by_key, spreadsheet_id)
+            worksheet = self._execute_with_retry(spreadsheet.worksheet, worksheet_name)
 
             # Get the first row (headers)
-            headers = worksheet.row_values(1)
+            headers = self._execute_with_retry(worksheet.row_values, 1)
             return headers
 
+        except APIError as e:
+            logger.error(f"A gspread API error occurred while getting headers from '{worksheet_name}': {str(e)}")
+            return []
         except Exception as e:
             logger.error(f"Error getting headers from '{worksheet_name}': {str(e)}")
             return []
@@ -202,10 +246,13 @@ class GoogleDriveService:
             if not self.client:
                 return False
 
-            spreadsheet = self.client.open_by_key(spreadsheet_id)
-            worksheets = spreadsheet.worksheets()
+            spreadsheet = self._execute_with_retry(self.client.open_by_key, spreadsheet_id)
+            worksheets = self._execute_with_retry(spreadsheet.worksheets)
             return len(worksheets) > 0
 
+        except APIError as e:
+            logger.error(f"A gspread API error occurred during connection test: {str(e)}")
+            return False
         except Exception as e:
             logger.error(f"Connection test failed: {str(e)}")
             return False
@@ -216,17 +263,21 @@ class GoogleDriveService:
             if not self.client:
                 raise Exception("Google Drive client not initialized")
             
-            spreadsheet = self.client.open_by_key(spreadsheet_id)
+            spreadsheet = self._execute_with_retry(self.client.open_by_key, spreadsheet_id)
             try:
-                worksheet = spreadsheet.worksheet(worksheet_name)
+                worksheet = self._execute_with_retry(spreadsheet.worksheet, worksheet_name)
                 # If sheet exists but is empty, add headers
-                if not worksheet.get_all_values():
-                    worksheet.append_row(headers, value_input_option='USER_ENTERED')
+                all_values = self._execute_with_retry(worksheet.get_all_values)
+                if not all_values:
+                    self._execute_with_retry(worksheet.append_row, headers, value_input_option='USER_ENTERED')
             except gspread.exceptions.WorksheetNotFound:
                 # If sheet does not exist, create it and add headers
-                worksheet = spreadsheet.add_worksheet(title=worksheet_name, rows=1, cols=len(headers))
-                worksheet.append_row(headers, value_input_option='USER_ENTERED')
+                worksheet = self._execute_with_retry(spreadsheet.add_worksheet, title=worksheet_name, rows=1, cols=len(headers))
+                self._execute_with_retry(worksheet.append_row, headers, value_input_option='USER_ENTERED')
             return True
+        except APIError as e:
+            logger.error(f"A gspread API error occurred while ensuring worksheet '{worksheet_name}': {str(e)}")
+            return False
         except Exception as e:
             logger.error(f"Error ensuring worksheet '{worksheet_name}': {str(e)}")
             return False
@@ -237,29 +288,32 @@ class GoogleDriveService:
             if not self.client:
                 raise Exception("Google Drive client not initialized")
 
-            spreadsheet = self.client.open_by_key(spreadsheet_id)
+            spreadsheet = self._execute_with_retry(self.client.open_by_key, spreadsheet_id)
             try:
-                worksheet = spreadsheet.worksheet(worksheet_name)
+                worksheet = self._execute_with_retry(spreadsheet.worksheet, worksheet_name)
             except gspread.exceptions.WorksheetNotFound:
                 logger.info(f"Worksheet '{worksheet_name}' not found. Creating it.")
-                worksheet = spreadsheet.add_worksheet(title=worksheet_name, rows=1, cols=len(data))
-                worksheet.append_row(data, value_input_option='USER_ENTERED')
+                worksheet = self._execute_with_retry(spreadsheet.add_worksheet, title=worksheet_name, rows=1, cols=len(data))
+                self._execute_with_retry(worksheet.append_row, data, value_input_option='USER_ENTERED')
                 return True
 
             key_to_find = data[key_column_index]
-            cell_list = worksheet.findall(key_to_find, in_column=key_column_index + 1)
+            cell_list = self._execute_with_retry(worksheet.findall, key_to_find, in_column=key_column_index + 1)
 
             if cell_list:
                 # Key found, update the first occurrence
                 row_index = cell_list[0].row
-                worksheet.update(f'A{row_index}', [data], value_input_option='USER_ENTERED')
+                self._execute_with_retry(worksheet.update, f'A{row_index}', [data], value_input_option='USER_ENTERED')
                 logger.info(f"Updated row {row_index} for key '{key_to_find}' in '{worksheet_name}'.")
             else:
                 # Key not found, append new row
-                worksheet.append_row(data, value_input_option='USER_ENTERED')
+                self._execute_with_retry(worksheet.append_row, data, value_input_option='USER_ENTERED')
                 logger.info(f"Appended new row for key '{key_to_find}' in '{worksheet_name}'.")
             
             return True
+        except APIError as e:
+            logger.error(f"A gspread API error occurred while upserting data in '{worksheet_name}': {str(e)}")
+            return False
         except Exception as e:
             logger.error(f"Error upserting data in '{worksheet_name}': {str(e)}")
             return False
