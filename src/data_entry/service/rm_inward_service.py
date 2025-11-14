@@ -254,15 +254,36 @@ class RMInwardService:
             logger.error(f"Error saving mapping template: {str(e)}")
             return False
 
-    def generate_coil_number(self, grade: str, coating: str, width: Any) -> str:
-        """Generates a new coil number based on properties and a timestamp."""
-        from datetime import datetime
+    def get_next_coil_number(self) -> int:
+        """
+        Generates the next sequential coil number based on existing numeric numbers in the sheet.
+        Starts from 12246 if no higher numeric-only number is found.
+        """
+        try:
+            df = self._get_all_dropdown_data()
+            if df is None or df.empty or "Coil Number" not in df.columns:
+                return 12246
 
-        timestamp_str = (
-            datetime.now().strftime("%d%m%y:%H:%M:%S:")
-            + f"{datetime.now().microsecond // 1000:03d}"
-        )
-        return f"{grade}-{coating}-{width}-{timestamp_str}"
+            max_coil_num = 12245  # The base number to compare against
+            
+            # Filter for strings that are purely numeric, then convert and find max
+            numeric_coils = pd.to_numeric(df['Coil Number'], errors='coerce').dropna()
+            
+            if not numeric_coils.empty:
+                current_max = numeric_coils.max()
+                if current_max > max_coil_num:
+                    max_coil_num = int(current_max)
+            
+            return max_coil_num + 1
+
+        except Exception as e:
+            logger.error(f"Error generating next coil number: {e}")
+            # Fallback to a timestamp-based unique number in case of error
+            return int(datetime.now().timestamp())
+
+    def generate_coil_number(self, grade: str = None, coating: str = None, width: Any = None) -> str:
+        """Generates a new sequential coil number as a string."""
+        return str(self.get_next_coil_number())
 
     def validate_single_entry(self, form_data: Dict[str, Any]) -> List[str]:
         """Validates the data from the single entry form."""
@@ -331,7 +352,10 @@ class RMInwardService:
 
         valid_requests = []
         failed_records = []
-        batch_timestamp = datetime.now().strftime("%d%m%y%H%M%S")
+        
+        next_coil_num = None
+        if options.get("auto_generate_coil") or options.get("group_by_col"):
+            next_coil_num = self.get_next_coil_number()
 
         for index, row in df.iterrows():
             try:
@@ -345,14 +369,9 @@ class RMInwardService:
                     ):
                         request_data[field_key] = row[excel_col]
 
-                if options.get("auto_generate_coil") or options.get("group_by_col"):
-                    grade = row[mapping["grade"]]
-                    coating = row[mapping["coating"]]
-                    width = row[mapping["width"]]
-                    sequence = index + 1
-                    request_data["coil_number"] = (
-                        f"{grade}-{coating}-{width}-{batch_timestamp}-{sequence}"
-                    )
+                if next_coil_num is not None:
+                    request_data["coil_number"] = str(next_coil_num)
+                    next_coil_num += 1
 
                 if not mapping.get("coil_location") or pd.isna(
                     request_data.get("coil_location")
