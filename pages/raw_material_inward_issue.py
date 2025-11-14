@@ -54,15 +54,11 @@ def render_raw_material_inward_issue_form() -> None:
             st.selectbox("RM Type", options=dropdowns.rm_types, index=None, placeholder="Select or type a RM Type", key="rm_type")
             
             if not st.session_state.get("use_custom_coil_number", False):
-                if st.session_state.get("grade") and st.session_state.get("coating") and st.session_state.get("width"):
-                    st.session_state.coil_number_input = data_service.generate_coil_number(
-                        grade=st.session_state.grade, 
-                        coating=st.session_state.coating, 
-                        width=st.session_state.width
-                    )
-                else:
-                    st.session_state.coil_number_input = ""
-
+                # Automatically generate coil number if not manually entered
+                # Only generate if coil_number_input is not already set or is empty
+                if 'coil_number_input' not in st.session_state or not st.session_state.coil_number_input:
+                    st.session_state.coil_number_input = data_service.generate_coil_number()
+            
             if st.session_state.get("use_custom_coil_number", False):
                 st.text_input("Coil Number", key="coil_number_input")
             else:
@@ -78,7 +74,7 @@ def render_raw_material_inward_issue_form() -> None:
             st.selectbox("Coating", options=dropdowns.coatings, index=None, placeholder="Select or type a Coating", key="coating")
             st.selectbox("Coil Supplier", options=dropdowns.suppliers, index=None, placeholder="Select or type a Supplier", key="supplier")
 
-        st.selectbox("Coil Location", options=["Amba", "TAIIN"], index=0, key="coil_location")
+        st.selectbox("Coil Location", options=["AEL Pune", "TAIIN"], index=0, key="coil_location")
 
         if st.button("Add Coil to List"):
             validation_state = dict(st.session_state)
