@@ -274,27 +274,55 @@ class SlittingPlanService:
             total_plan_summary = {}
             for plan_id in plan_ids:
                 plan_details = self.get_saved_plan_details(plan_id)
+                if not plan_details:
+                    logger.warning(f"Could not retrieve details for plan_id: {plan_id}. Skipping in validation.")
+                    continue
+                
+                num_coils_in_plan = len(plan_details.get('raw_materials', []))
+                if num_coils_in_plan == 0:
+                    logger.warning(f"Slitting plan {plan_id} has no raw materials. Skipping in validation.")
+                    continue
+
                 for slit in plan_details.get('slit_details', []):
                     size = float(slit.get('Size', 0))
-                    slits = int(slit.get('No. of Slits', 0))
+                    slits_per_coil = int(slit.get('No. of Slits', 0))
                     weight = float(slit.get('Weight in Kg', 0))
+
+                    total_slits_for_size_in_plan = slits_per_coil * num_coils_in_plan
+                    
                     if size in total_plan_summary:
-                        total_plan_summary[size]['planned_slits'] += slits
+                        total_plan_summary[size]['planned_slits'] += total_slits_for_size_in_plan
                         total_plan_summary[size]['planned_weight'] += weight
                     else:
-                        total_plan_summary[size] = {'planned_slits': slits, 'planned_weight': weight}
+                        total_plan_summary[size] = {
+                            'planned_slits': total_slits_for_size_in_plan, 
+                            'planned_weight': weight
+                        }
             
             plan_summary_df = pd.DataFrame.from_dict(total_plan_summary, orient='index').reset_index().rename(columns={'index': width_col})
 
             comparison_df = pd.merge(plan_summary_df, packing_list_summary, on=width_col, how='outer').fillna(0)
             
             def get_status(row):
-                weight_tolerance = row['planned_weight'] * 0.01
-                weight_match = abs(row['planned_weight'] - row['found_weight']) <= weight_tolerance
                 slits_match = row['planned_slits'] == row['found_coils']
-                if weight_match and slits_match:
-                    return "✅ Match"
+                
+                # Calculate 5% weight tolerance
+                weight_tolerance_5_percent = row['planned_weight'] * 0.05
+                weight_within_5_percent = abs(row['planned_weight'] - row['found_weight']) <= weight_tolerance_5_percent
+
+                if slits_match:
+                    if weight_within_5_percent:
+                        return "✅ Match"
+                    else:
+                        # Calculate actual percentage deviation
+                        if row['planned_weight'] != 0:
+                            actual_deviation_percent = (abs(row['planned_weight'] - row['found_weight']) / row['planned_weight']) * 100
+                            return f"⚠️ Weight Mismatch ({actual_deviation_percent:.2f}% deviation)"
+                        else:
+                            # Handle case where planned_weight is 0 to avoid division by zero
+                            return "⚠️ Weight Mismatch (Planned weight is 0)"
                 else:
+                    # Coils do not match exactly, this is a hard mismatch
                     return "❌ Mismatch"
 
             comparison_df['Status'] = comparison_df.apply(get_status, axis=1)
