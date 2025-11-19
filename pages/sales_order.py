@@ -87,7 +87,7 @@ def render_header_fields(dropdown_data):
     with col1:
         st.date_input("Order Date", key="so_order_date")
         st.text_input("PO No. (Optional)", key="so_po_no")
-        st.selectbox("Party Name", options=dropdown_data.party_names, index=None, placeholder="Select a Party", key="so_party_name")
+        st.selectbox("Party Name", options=dropdown_data.party_names, index=None, placeholder="Select a Party", key="so_party_name", accept_new_options=True)
         st.text_input("Party Job No. (Optional)", key="so_party_job_no")
     with col2:
         st.date_input("Delivery Date", key="so_delivery_date")
