@@ -52,3 +52,19 @@ class PowerAutomatePlannerRequest(BaseModel):
     jobDate: str # Assuming YYYY-MM-DD format string
     orderType: str = Field(default="MFG")
     runChildFlow: bool = Field(default=False)
+
+class FullCoilSaleRequest(BaseModel):
+    """Request model for creating a new Full Coil Sale."""
+    job_card: str
+    order_date: date
+    po_no: Optional[str] = None
+    party_name: str
+    width: float
+    qty: float
+    material_type: str
+    thk: float
+    rate: float
+    delivery_date: date
+    remark: Optional[str] = None
+    grade: Optional[str] = None
+    coating: Optional[str] = None

@@ -6,6 +6,7 @@ from src.data_entry.service.sales_order_service import SalesOrderService
 from src.pdf_generator.service.pdf_service import PDFService
 from src.data_entry.service.weight_receipt_service import WeightReceiptService
 from src.slitting_plan.service.slitting_plan_service import SlittingPlanService
+from src.data_entry.service.rm_inward_service import RMInwardService
 
 class AppServices:
     """A container for all application services."""
@@ -15,11 +16,13 @@ class AppServices:
         pdf: PDFService,
         weight_receipt: WeightReceiptService,
         slitting_plan: SlittingPlanService,
+        rm_inward: RMInwardService,
     ):
         self.sales_order = sales_order
         self.pdf = pdf
         self.weight_receipt = weight_receipt
         self.slitting_plan = slitting_plan
+        self.rm_inward = rm_inward
 
 def create_services() -> AppServices:
     """
@@ -35,6 +38,7 @@ def create_services() -> AppServices:
     pdf_service = PDFService(sales_order_service=sales_order_service)
     weight_receipt_service = WeightReceiptService()
     slitting_plan_service = SlittingPlanService()
+    rm_inward_service = RMInwardService()
 
     # Return the container with all services
     return AppServices(
@@ -42,4 +46,5 @@ def create_services() -> AppServices:
         pdf=pdf_service,
         weight_receipt=weight_receipt_service,
         slitting_plan=slitting_plan_service,
+        rm_inward=rm_inward_service,
     )

@@ -12,20 +12,43 @@ class WeightReceiptService:
     def __init__(self):
         self.repository = WeightReceiptRepository()
 
-    def generate_weight_receipt_number(self) -> str:
-        """Generates a new unique Weight Receipt number."""
-        today_str = datetime.now().strftime("%Y%m%d")
-        time_str = datetime.now().strftime("%H%M%S")
-        return f"WR-{today_str}-{time_str}"
+    def get_next_weight_receipt_number(self) -> int:
+        """
+        Generates the next sequential weight receipt number.
+        Starts from 10315 if no higher numeric-only number is found.
+        """
+        try:
+            df = self.repository.get_all_weight_receipts()
+            if df is None or df.empty or "WeightReceiptNumber" not in df.columns:
+                return 10315
 
-    def save_weight_receipt(self, request: WeightReceiptRequest) -> str:
+            max_receipt_num = 10314  # The base number to compare against
+            
+            # Filter for strings that are purely numeric, then convert and find max
+            numeric_receipts = pd.to_numeric(df['WeightReceiptNumber'], errors='coerce').dropna()
+            
+            if not numeric_receipts.empty:
+                current_max = numeric_receipts.max()
+                if current_max > max_receipt_num:
+                    max_receipt_num = int(current_max)
+            
+            return max_receipt_num + 1
+
+        except Exception as e:
+            logger.error(f"Error generating next weight receipt number: {e}")
+            return int(datetime.now().timestamp())
+
+    def generate_weight_receipt_number(self) -> str:
+        """Generates a new sequential weight receipt number as a string."""
+        return str(self.get_next_weight_receipt_number())
+
+    def save_weight_receipt(self, request: WeightReceiptRequest) -> bool:
         """Saves a new weight receipt."""
         try:
-            receipt_number = self.generate_weight_receipt_number()
             designs_json = json.dumps([d.model_dump() for d in request.designs])
             
             record = WeightReceiptRecord(
-                weight_receipt_number=receipt_number,
+                weight_receipt_number=request.weight_receipt_number,
                 receipt_date=request.receipt_date,
                 job_card_number=request.job_card_number,
                 party_name=request.party_name,
@@ -38,14 +61,14 @@ class WeightReceiptService:
             success = self.repository.save_weight_receipt(record.to_list())
             
             if success:
-                logger.info(f"Successfully saved Weight Receipt {receipt_number}")
-                return receipt_number
+                logger.info(f"Successfully saved Weight Receipt {request.weight_receipt_number}")
+                return True
             else:
-                logger.error("Failed to save Weight Receipt.")
-                return ""
+                logger.error(f"Failed to save Weight Receipt {request.weight_receipt_number}.")
+                return False
         except Exception as e:
             logger.error(f"Error saving weight receipt: {str(e)}")
-            return ""
+            return False
 
     def get_weight_receipts_for_party_and_date_range(self, party_name: str, start_date: date, end_date: date) -> List[dict]:
         """Fetches weight receipts for a specific party within a date range."""

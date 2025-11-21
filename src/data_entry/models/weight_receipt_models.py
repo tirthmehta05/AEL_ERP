@@ -13,6 +13,7 @@ class WeighedDesignDetail(BaseModel):
 
 class WeightReceiptRequest(BaseModel):
     """Request model for creating a new Weight Receipt."""
+    weight_receipt_number: str
     receipt_date: date
     job_card_number: str
     party_name: str

@@ -47,6 +47,19 @@ def render_weight_receipt_form():
             st.markdown("---")
             st.markdown(f"<h5>Details for {selected_jc['job_card_number']}</h5>", unsafe_allow_html=True)
 
+            # --- Weight Receipt Number ---
+            st.checkbox("Enter Weight Receipt Number Manually", key="use_custom_wr_number")
+            
+            if not st.session_state.get("use_custom_wr_number", False):
+                if 'wr_number_input' not in st.session_state or not st.session_state.wr_number_input:
+                    st.session_state.wr_number_input = services.weight_receipt.generate_weight_receipt_number()
+            
+            if st.session_state.get("use_custom_wr_number", False):
+                st.text_input("Weight Receipt Number", key="wr_number_input")
+            else:
+                st.text_input("Weight Receipt Number (Auto-generated)", value=st.session_state.get("wr_number_input", ""), disabled=True)
+
+
             designs = json.loads(selected_jc.get('designs_json', '[]'))
             if designs:
                 # Prepare dataframe for data_editor
@@ -77,6 +90,11 @@ def render_weight_receipt_form():
                             return
                         
                         weighed_designs.append(WeighedDesignDetail(**row))
+                    
+                    wr_number = st.session_state.get("wr_number_input", "").strip()
+                    if not wr_number:
+                        st.error("Weight Receipt Number is required.")
+                        return
 
                     designs_from_jc = json.loads(selected_jc.get('designs_json', '[]'))
                     material_type = designs_from_jc[0].get('type', '') if designs_from_jc else ''
@@ -84,6 +102,7 @@ def render_weight_receipt_form():
                     material = f"{material_type} {thk}"
 
                     request = WeightReceiptRequest(
+                        weight_receipt_number=wr_number,
                         receipt_date=datetime.now().date(),
                         job_card_number=selected_jc['job_card_number'],
                         party_name=selected_jc['party_name'],
@@ -94,9 +113,12 @@ def render_weight_receipt_form():
                     )
 
                     with st.spinner("Saving Weight Receipt..."):
-                        receipt_number = services.weight_receipt.save_weight_receipt(request)
-                        if receipt_number:
-                            st.success(f"Weight Receipt {receipt_number} saved successfully!")
+                        success = services.weight_receipt.save_weight_receipt(request)
+                        if success:
+                            st.success(f"Weight Receipt {wr_number} saved successfully!")
+                            # Clear state
+                            if 'wr_number_input' in st.session_state:
+                                del st.session_state['wr_number_input']
                             time.sleep(2)
                             st.rerun()
                         else:
