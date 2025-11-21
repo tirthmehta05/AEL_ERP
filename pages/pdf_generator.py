@@ -21,6 +21,11 @@ def get_job_cards(_services: AppServices, start, end):
     """Cached function to fetch job card data."""
     return _services.pdf.get_sales_orders_for_job_card(start_date=start, end_date=end)
 
+@st.cache_data
+def get_weight_receipts(_services: AppServices, party_name: str, start_date, end_date):
+    """Cached function to fetch weight receipt data."""
+    return _services.weight_receipt.get_weight_receipts_for_party_and_date_range(party_name, start_date, end_date)
+
 # --- Tab Rendering Functions ---
 
 def render_coil_sticker_tab(services: AppServices):
@@ -239,6 +244,54 @@ def render_job_card_tab(services: AppServices):
                     mime="application/pdf"
                 )
 
+def render_weight_receipt_tab(services: AppServices):
+    """Renders the UI for the Weight Receipt tab."""
+    st.header("Weight Receipt PDF Generation")
+    
+    # --- Filters ---
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        party_names = services.sales_order.get_dropdown_data().party_names
+        selected_party = st.selectbox("Select Party", options=[""] + party_names, key="wr_party")
+    with col2:
+        start_date = st.date_input("Start Date", datetime.now() - timedelta(days=30), key="wr_start_date")
+    with col3:
+        end_date = st.date_input("End Date", datetime.now(), key="wr_end_date")
+
+    if selected_party:
+        receipts = get_weight_receipts(services, selected_party, start_date, end_date)
+        
+        if not receipts:
+            st.info("No Weight Receipts found for the selected party and date range.")
+            return
+
+        receipt_options = {r['WeightReceiptNumber']: r for r in receipts}
+        selected_receipt_number = st.selectbox(
+            "Select Weight Receipt to Print", 
+            options=[""] + list(receipt_options.keys())
+        )
+
+        if selected_receipt_number:
+            selected_receipt = receipt_options[selected_receipt_number]
+            
+            st.markdown(f"**Receipt Number:** {selected_receipt.get('WeightReceiptNumber')}")
+            st.markdown(f"**Date:** {selected_receipt.get('Date')}")
+            st.markdown(f"**Job Card No:** {selected_receipt.get('JobCardNumber')}")
+
+            designs = json.loads(selected_receipt.get('DesignDetailsWithWeightsJSON', '[]'))
+            st.markdown("**Designs:**")
+            st.dataframe(pd.DataFrame(designs))
+
+            if st.button("Generate PDF for this Weight Receipt"):
+                with st.spinner("Generating PDF..."):
+                    pdf_output = services.pdf.generate_weight_receipt_pdf(selected_receipt)
+                    st.download_button(
+                        label="Download PDF",
+                        data=pdf_output,
+                        file_name=f"{selected_receipt_number}.pdf",
+                        mime="application/pdf"
+                    )
+
 def render_pdf_generator_page():
     """Renders the main PDF Generator page with tabs."""
     st.title("📄 PDF Generator")
@@ -249,13 +302,14 @@ def render_pdf_generator_page():
             get_available_coils.clear()
             get_printable_plans.clear()
             get_job_cards.clear()
+            get_weight_receipts.clear()
             st.toast("PDF Generator cache cleared!")
         except NameError: # Functions might not be defined if tabs are not rendered
             pass
 
     services = create_services()
     
-    tab1, tab2, tab3, tab4 = st.tabs(["Coil Sticker", "Slitting Plan", "Job Card", "Delivery Challan"]) # Add new tab
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Coil Sticker", "Slitting Plan", "Job Card", "Delivery Challan", "Weight Receipt"])
 
     with tab1:
         render_coil_sticker_tab(services)
@@ -268,3 +322,6 @@ def render_pdf_generator_page():
     
     with tab4:
         render_delivery_challan_tab(services)
+    
+    with tab5:
+        render_weight_receipt_tab(services)

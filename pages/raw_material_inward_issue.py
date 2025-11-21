@@ -51,7 +51,7 @@ def render_raw_material_inward_issue_form() -> None:
         col1, col2 = st.columns(2)
         with col1:
             st.date_input("RM Receipt Date", key="receipt_date")
-            st.selectbox("RM Type", options=dropdowns.rm_types, index=None, placeholder="Select or type a RM Type", key="rm_type")
+            st.selectbox("RM Type", options=dropdowns.rm_types, index=None, placeholder="Select or type a RM Type", key="rm_type", accept_new_options=True)
             
             if not st.session_state.get("use_custom_coil_number", False):
                 # Automatically generate coil number if not manually entered
@@ -68,11 +68,11 @@ def render_raw_material_inward_issue_form() -> None:
             st.selectbox("PO Number (Optional)", options=[], index=None, placeholder="Type a PO Number", accept_new_options=True, key="po_number")
 
         with col2:
-            st.selectbox("Grade", options=dropdowns.grades, index=None, placeholder="Select or type a Grade", key="grade")
-            st.selectbox("Thk (mm)", options=dropdowns.thks, index=None, placeholder="Select or type a Thk", key="thk")
-            st.selectbox("Width (mm)", options=dropdowns.widths, index=None, placeholder="Select or type a Width", key="width")
-            st.selectbox("Coating", options=dropdowns.coatings, index=None, placeholder="Select or type a Coating", key="coating")
-            st.selectbox("Coil Supplier", options=dropdowns.suppliers, index=None, placeholder="Select or type a Supplier", key="supplier")
+            st.selectbox("Grade", options=dropdowns.grades, index=None, placeholder="Select or type a Grade", key="grade", accept_new_options=True)
+            st.selectbox("Thk (mm)", options=dropdowns.thks, index=None, placeholder="Select or type a Thk", key="thk", accept_new_options=True)
+            st.selectbox("Width (mm)", options=dropdowns.widths, index=None, placeholder="Select or type a Width", key="width", accept_new_options=True)
+            st.selectbox("Coating", options=dropdowns.coatings, index=None, placeholder="Select or type a Coating", key="coating", accept_new_options=True)
+            st.selectbox("Coil Supplier", options=dropdowns.suppliers, index=None, placeholder="Select or type a Supplier", key="supplier", accept_new_options=True)
 
         st.selectbox("Coil Location", options=["AEL Pune", "TAIIN"], index=0, key="coil_location")
 

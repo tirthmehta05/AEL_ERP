@@ -1,3 +1,4 @@
+from datetime import datetime
 import io
 from typing import List
 import pandas as pd
@@ -289,6 +290,7 @@ class PDFService:
 
         designs = json.loads(job_card_data.get('designs_json', '[]'))
         thickness = designs[0].get('thk', 'N/A') if designs else 'N/A'
+        party_job_no = designs[0].get('party_job_no', 'N/A') if designs else 'N/A'
         
         # Main Parameters Table
         key_font_size = 10
@@ -343,7 +345,7 @@ class PDFService:
         pdf.set_font("Helvetica", '', key_font_size)
         pdf.cell(key_width, 8, "Job No:", border='LTB', align='L')
         pdf.set_font("Helvetica", 'B', value_font_size)
-        pdf.cell(value_width, 8, str(job_card_data.get('job_no', 'N/A')), border='RTB', align='L', ln=True)
+        pdf.cell(value_width, 8, str(party_job_no), border='RTB', align='L', ln=True)
         pdf.ln(10)
 
         # Items Table
@@ -485,4 +487,118 @@ class PDFService:
             pdf.cell(90, 8, f"Set : {item['summary']['sets']}", border='LB', align='C')
             pdf.cell(30, 8, "", border='LBR', align='R', ln=True)
 
+        return bytes(pdf.output(dest='S'))
+
+    def generate_weight_receipt_pdf(self, receipt_data: dict) -> bytes:
+        """Generates a Weight Receipt PDF from a structured dictionary."""
+        pdf = FPDF(orientation='P', unit='mm', format='A4')
+        pdf.add_page()
+        pdf.set_auto_page_break(auto=True, margin=15)
+        
+        # Title
+        pdf.set_font("Helvetica", 'B', 18)
+        pdf.cell(0, 10, f"Weight Receipt No: {receipt_data.get('WeightReceiptNumber', 'N/A')}", ln=True, align='C')
+        pdf.ln(10)
+
+        # --- Header Box ---
+        line_height = 8
+        
+        # Get data
+        party_name = receipt_data.get('PartyName', 'N/A')
+        po_no = receipt_data.get('PONumber', 'N/A')
+        receipt_date_obj = receipt_data.get('Date')
+        receipt_date = pd.to_datetime(receipt_date_obj).strftime('%d/%m/%Y') if pd.notna(receipt_date_obj) else 'N/A'
+        card_no = receipt_data.get('JobCardNumber', 'N/A')
+        
+        designs = json.loads(receipt_data.get('DesignDetailsWithWeightsJSON', '[]'))
+        job_no = designs[0].get('party_job_no', 'N/A') if designs else 'N/A'
+
+        # Line 1: Name
+        pdf.set_font("Helvetica", 'B', 12)
+        pdf.cell(20, line_height, "Name", border=1)
+        pdf.set_font("Helvetica", '', 12)
+        pdf.cell(0, line_height, f": {party_name}", border=1, ln=True)
+
+        # Line 2: PO No and PO Date
+        pdf.set_font("Helvetica", 'B', 12)
+        pdf.cell(20, line_height, "PO No", border='L,B')
+        pdf.set_font("Helvetica", '', 12)
+        pdf.cell(75, line_height, f": {po_no}", border='B,R')
+        
+        pdf.set_font("Helvetica", 'B', 12)
+        pdf.cell(25, line_height, "PO Date", border='B')
+        pdf.set_font("Helvetica", '', 12)
+        pdf.cell(0, line_height, f": {receipt_date}", border='B,R', ln=True)
+
+        # Line 3: Card No and Job No
+        pdf.set_font("Helvetica", 'B', 12)
+        pdf.cell(20, line_height, "Card No", border='L,B')
+        pdf.set_font("Helvetica", '', 12)
+        pdf.cell(75, line_height, f": {card_no}", border='B,R')
+        
+        pdf.set_font("Helvetica", 'B', 12)
+        pdf.cell(25, line_height, "Job No", border='B')
+        pdf.set_font("Helvetica", '', 12)
+        pdf.cell(0, line_height, f": {job_no}", border='B,R', ln=True)
+        pdf.ln(10)
+        
+        # --- Items Table Header ---
+        pdf.set_font("Helvetica", 'B', 10)
+        pdf.set_fill_color(230, 230, 230)
+        pdf.cell(20, 8, "Sr No", border=1, fill=True, align='C')
+        pdf.cell(140, 8, "Description", border=1, fill=True, align='C')
+        pdf.cell(30, 8, "Weight", border=1, fill=True, align='C', ln=True)
+
+        # --- Items Table Rows ---
+        pdf.set_font("Helvetica", '', 10)
+        total_weight = 0
+        row_height = 12 
+
+        for i, item in enumerate(designs):
+            start_y = pdf.get_y()
+            
+            pdf.cell(20, row_height, str(i + 1), border=1, align='C')
+            
+            desc_x = pdf.get_x()
+            pdf.multi_cell(140, row_height / 2,
+                           f"{item.get('width', '')} X {item.get('length', '')} X {item.get('mm_stack', '')}\n{item.get('remark', '')}",
+                           border=1, align='C')
+            
+            weight = float(item.get('actual_weight', 0))
+            total_weight += weight
+            pdf.set_xy(desc_x + 140, start_y)
+            pdf.cell(30, row_height, f"{weight:.3f}", border=1, align='R', ln=True)
+
+        # --- Table Footer ---
+        pdf.set_font("Helvetica", '', 12)
+        pdf.cell(20, 8, '', border='LB') # Empty Sr No cell
+        pdf.cell(60, 8, f"Type: {receipt_data.get('Material', 'N/A')}", border='B')
+        pdf.cell(40, 8, f"Set: {receipt_data.get('Sets', 'N/A')}", border='B')
+        pdf.set_font("Helvetica", 'B', 10)
+        pdf.cell(40, 8, "Weight:", border='B', align='R')
+        pdf.cell(30, 8, f"{total_weight:.3f}", border='LBR', align='R', ln=True)
+        pdf.ln(2)
+
+        # --- Details below table ---
+        pdf.set_font("Helvetica", '', 12)
+        col_width = 95
+        line_height = 8
+        # Line 2: Deduction, Net
+        pdf.cell(col_width, line_height, "Deduction : 0.00", border=0)
+        pdf.cell(col_width, line_height, f"Net : {total_weight:.2f}", border=0, ln=True)
+        pdf.ln(15) # Increased spacing
+
+        # --- Signatures and Timestamps ---
+        pdf.cell(col_width, line_height, "Prepared By", border=0)
+        pdf.cell(col_width, line_height, "Checked By", border=0, ln=True)
+        pdf.ln(10)
+        
+        pdf.cell(col_width, line_height, f"Date: {receipt_date}", border=0)
+        pdf.cell(col_width, line_height, f"Time: {datetime.now().strftime('%H:%M:%S')}", border=0, ln=True)
+        pdf.ln(10)
+
+        # --- Final Party Name ---
+        pdf.set_font("Helvetica", 'B', 12)
+        pdf.cell(0, 10, party_name, ln=True, align='L')
+        
         return bytes(pdf.output(dest='S'))

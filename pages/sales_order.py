@@ -341,6 +341,86 @@ def handle_final_submission(service: SalesOrderService):
     except ValidationError as e:
         st.error(f"Final validation failed: {e}")
 
+def render_full_coil_sale_form(service: SalesOrderService, dropdown_data):
+    """Renders the form for Full Coil Sale."""
+    st.markdown("<h5>Full Coil Sale Details</h5>", unsafe_allow_html=True)
+    
+    # Load dropdowns from RM Inward service
+    @st.cache_resource(ttl=600)
+    def load_rm_inward_dropdowns(_service: SalesOrderService):
+        # We need to get the rm_inward_service from the AppServices
+        app_services = create_services()
+        return app_services.rm_inward.get_dropdown_data()
+
+    rm_inward_dropdowns = load_rm_inward_dropdowns(service)
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.checkbox("Enter Job Card Manually", key="fcs_manual_job_card")
+        if not st.session_state.fcs_manual_job_card:
+            if 'fcs_job_card_generated' not in st.session_state:
+                st.session_state.fcs_job_card_generated = service.generate_full_coil_sale_job_card_number()
+            st.text_input("Job Card", value=st.session_state.fcs_job_card_generated, key="fcs_job_card", disabled=True)
+        else:
+            st.text_input("Job Card", key="fcs_job_card")
+        
+        st.date_input("Order Entry Date", key="fcs_order_date")
+        st.text_input("PO No. (Optional)", key="fcs_po_no")
+        st.selectbox("Party Name", options=dropdown_data.party_names, index=None, placeholder="Select a Party", key="fcs_party_name", accept_new_options=True)
+        st.selectbox("Material Type", options=rm_inward_dropdowns.rm_types, index=None, placeholder="Select or type a Material Type", key="fcs_material_type", accept_new_options=True)
+
+    with col2:
+        st.selectbox("Width (mm)", options=rm_inward_dropdowns.widths, index=None, placeholder="Select or type a Width", key="fcs_width", accept_new_options=True)
+        st.number_input("Quantity (kg)", min_value=0.0, step=1.00, format="%.2f", key="fcs_qty")
+        st.selectbox("Thk (mm)", options=rm_inward_dropdowns.thks, index=None, placeholder="Select or type a Thk", key="fcs_thk", accept_new_options=True)
+        st.number_input("Rate (per Kg)", min_value=0.0, step=1.00, format="%.2f", key="fcs_rate")
+        
+    with col3:
+        st.date_input("Delivery Date", key="fcs_delivery_date")
+        st.selectbox("Grade", options=rm_inward_dropdowns.grades, index=None, placeholder="Select or type a Grade", key="fcs_grade", accept_new_options=True)
+        st.selectbox("Coating (Optional)", options=rm_inward_dropdowns.coatings, index=None, placeholder="Select a Coating", key="fcs_coating", accept_new_options=True)
+        st.text_input("Remark (Optional)", key="fcs_remark")
+
+    st.markdown("---")
+    if st.button("Save Full Coil Sale"):
+        try:
+            from src.data_entry.models.sales_order_models import FullCoilSaleRequest
+            
+            job_card = st.session_state.fcs_job_card_generated if not st.session_state.fcs_manual_job_card else st.session_state.fcs_job_card
+
+            request = FullCoilSaleRequest(
+                job_card=job_card,
+                order_date=st.session_state.fcs_order_date,
+                po_no=st.session_state.fcs_po_no,
+                party_name=st.session_state.fcs_party_name,
+                width=float(st.session_state.fcs_width),
+                qty=st.session_state.fcs_qty,
+                material_type=st.session_state.fcs_material_type,
+                thk=float(st.session_state.fcs_thk),
+                rate=st.session_state.fcs_rate,
+                delivery_date=st.session_state.fcs_delivery_date,
+                remark=st.session_state.fcs_remark,
+                grade=st.session_state.fcs_grade,
+                coating=st.session_state.fcs_coating
+            )
+            with st.spinner("Saving Full Coil Sale order..."):
+                success = service.save_full_coil_sale(request)
+            if success:
+                st.success(f"Full Coil Sale {request.job_card} saved successfully!")
+                time.sleep(2)
+                # Clear relevant session state keys for FCS
+                keys_to_clear = [key for key in st.session_state.keys() if key.startswith('fcs_')]
+                for key in keys_to_clear:
+                    if key in st.session_state: del st.session_state[key]
+                st.rerun()
+            else:
+                st.error("Failed to save the Full Coil Sale order.")
+        except ValidationError as e:
+            st.error(f"Validation failed: {e}")
+        except Exception as e:
+            st.error(f"An error occurred: {e}")
+
+
 @st.cache_resource(ttl=600)
 def load_dropdowns(_service: SalesOrderService):
     return _service.get_dropdown_data()
@@ -360,23 +440,34 @@ def render_sales_order_form() -> None:
 
     dropdown_data = load_dropdowns(services.sales_order)
 
-    render_header_fields(dropdown_data)
-    
-    st.checkbox("Entry Type: Ready", key="so_is_ready_entry")
-    
-    if st.session_state.get("so_party_name"):
-        if st.session_state.so_is_ready_entry:
-            render_ready_design_entry_fields()
-        else:
-            render_design_entry_fields()
+    st.subheader("Sales Order Entry")
+    order_type = st.radio(
+        "Select Order Type",
+        ("Standard Manufacturing", "Full Coil Sale"),
+        key="order_type_selector",
+        horizontal=True
+    )
+
+    if order_type == "Standard Manufacturing":
+        render_header_fields(dropdown_data)
         
-        render_designs_table()
+        st.checkbox("Entry Type: Ready", key="so_is_ready_entry")
         
-        st.markdown("---")
-        if st.checkbox("Show/Hide Coil Assignment", key="so_show_coil_assigner"):
-            render_coil_assignment_fields(services.slitting_plan)
-            render_assigned_coils_table()
-        
-        st.markdown("---")
-        if st.button("Save Full Sales Order"):
-            handle_final_submission(services.sales_order)
+        if st.session_state.get("so_party_name"):
+            if st.session_state.so_is_ready_entry:
+                render_ready_design_entry_fields()
+            else:
+                render_design_entry_fields()
+            
+            render_designs_table()
+            
+            st.markdown("---")
+            if st.checkbox("Show/Hide Coil Assignment", key="so_show_coil_assigner"):
+                render_coil_assignment_fields(services.slitting_plan)
+                render_assigned_coils_table()
+            
+            st.markdown("---")
+            if st.button("Save Full Sales Order"):
+                handle_final_submission(services.sales_order)
+    elif order_type == "Full Coil Sale":
+        render_full_coil_sale_form(services.sales_order, dropdown_data)

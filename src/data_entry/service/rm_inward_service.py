@@ -264,7 +264,7 @@ class RMInwardService:
             if df is None or df.empty or "Coil Number" not in df.columns:
                 return 12246
 
-            max_coil_num = 12245  # The base number to compare against
+            max_coil_num = 12179  # The base number to compare against
             
             # Filter for strings that are purely numeric, then convert and find max
             numeric_coils = pd.to_numeric(df['Coil Number'], errors='coerce').dropna()

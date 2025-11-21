@@ -3,7 +3,7 @@ import requests
 import msal
 from src.shared.utils.logger_config import setup_logger
 from src.shared.integrations.google_drive_service import google_drive_service
-from src.data_entry.models.sales_order_models import SalesOrderRequest, SalesOrderDropdownData, PowerAutomatePlannerRequest
+from src.data_entry.models.sales_order_models import SalesOrderRequest, SalesOrderDropdownData, PowerAutomatePlannerRequest, FullCoilSaleRequest
 from src.data_entry.service.rm_used_service import RMUsedService
 from src.data_entry.models.rm_used_models import RMUsedRequest
 from config import settings
@@ -87,6 +87,32 @@ class SalesOrderService:
             logger.error(f"Error generating ready card number: {str(e)}")
             return f"{prefix}{datetime.now().strftime('%y%m%d%H%M%S')}"
 
+    def generate_full_coil_sale_job_card_number(self) -> str:
+        """Generates a new unique Job Card number for Full Coil Sale, e.g., RM-11."""
+        prefix = "RM-"
+        start_number = 11
+        try:
+            df = self.google_service.get_worksheet_data(self.spreadsheet_id, "Sales Order", header_row=1)
+            if df.empty or 'Job Card' not in df.columns:
+                return f"{prefix}{start_number}"
+
+            # Filter for job cards starting with "RM-"
+            jc_series = df['Job Card'][df['Job Card'].str.startswith(prefix, na=False)]
+
+            if jc_series.empty:
+                return f"{prefix}{start_number}"
+
+            # Extract numbers, convert to int, and find max
+            max_num = jc_series.str.split('-').str[1].astype(int).max()
+            
+            if max_num < start_number:
+                return f"{prefix}{start_number}"
+
+            next_num = max_num + 1
+            return f"{prefix}{next_num}"
+        except Exception as e:
+            logger.error(f"Error generating full coil sale job card number: {str(e)}")
+            return f"{prefix}{datetime.now().strftime('%y%m%d%H%M%S')}"
 
     def get_dropdown_data(self) -> SalesOrderDropdownData:
         """Fetches dropdown data for the Sales Order form."""
@@ -207,6 +233,46 @@ class SalesOrderService:
             logger.error(f"Error saving sales order: {str(e)}")
             return False
 
+    def save_full_coil_sale(self, request: FullCoilSaleRequest) -> bool:
+        """Saves a new Full Coil Sale entry to the 'Sales Order' sheet."""
+        try:
+            row = [None] * 24
+            row[0] = request.job_card
+            row[1] = request.order_date.strftime("%m/%d/%Y")
+            row[2] = request.po_no
+            row[3] = None  # Party Job No
+            row[4] = request.party_name
+            row[5] = request.width
+            row[6] = None  # Length
+            row[7] = None  # MM
+            row[8] = None  # Stack
+            row[9] = None  # Hole Size
+            row[10] = None  # No Of Holes
+            row[11] = 0  # No Of Set
+            row[12] = request.qty
+            row[13] = request.material_type
+            row[14] = request.thk
+            row[15] = request.rate
+            row[16] = request.delivery_date.strftime("%m/%d/%Y")
+            row[17] = request.remark
+            row[18] = request.order_date.month
+            row[19] = None  # Despatch Qty
+            row[20] = None  # Shortclose/cancel
+            row[21] = request.order_date.year
+            row[22] = request.grade
+            row[23] = request.coating
+
+            success = self.google_service.append_data(self.spreadsheet_id, "Sales Order", [row])
+            if success:
+                logger.info(f"Successfully saved Full Coil Sale {request.job_card}.")
+                return True
+            else:
+                logger.error(f"Failed to save Full Coil Sale {request.job_card}.")
+                return False
+        except Exception as e:
+            logger.error(f"Error saving Full Coil Sale: {str(e)}")
+            return False
+            
     def invoke_power_automate_flow(self, request: SalesOrderRequest):
         """Invokes the Power Automate flow to create a new task in Planner."""
         try:
