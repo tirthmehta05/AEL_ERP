@@ -76,12 +76,6 @@ def render_weight_receipt_form():
             # Calculate expected total weight from job card designs
             expected_total_weight = sum(float(d.get('weight', 0)) for d in designs)
 
-            # Initialize session state for variance confirmation
-            if 'confirm_variance_save' not in st.session_state:
-                st.session_state.confirm_variance_save = False
-            if 'show_variance_warning_ui' not in st.session_state:
-                st.session_state.show_variance_warning_ui = False
-
             if weight_entry_type == "Loose Strips":
                 # Prepare dataframe for data_editor
                 df = pd.DataFrame(designs)
@@ -123,65 +117,39 @@ def render_weight_receipt_form():
                     if expected_total_weight > 0:
                         variance_percent = abs(actual_total_weight - expected_total_weight) / expected_total_weight * 100
 
-                    proceed_with_save = True
                     if expected_total_weight > 0 and variance_percent > 5:
-                        warning_message = f"Weight variance ({variance_percent:.2f}%) exceeds 5% (Expected: {expected_total_weight:.2f} kg, Actual: {actual_total_weight:.2f} kg)."
+                        warning_message = f"Weight variance ({variance_percent:.2f}%) exceeds 5% (Expected: {expected_total_weight:.2f} kg, Actual: {actual_total_weight:.2f} kg). Proceeding with save."
                         st.warning(warning_message)
-                        
-                        col_warn_1, col_warn_2 = st.columns(2)
-                        with col_warn_1:
-                            if st.button("Proceed Anyway", key="proceed_anyway_button_loose"):
-                                st.session_state.confirm_variance_save = True
-                                st.rerun()
-                        with col_warn_2:
-                            if st.button("Cancel Save", key="cancel_save_button_loose"):
-                                st.session_state.confirm_variance_save = False
-                                st.session_state.show_variance_warning_ui = False
-                                st.stop() # Stop execution without saving
-
-                        if not st.session_state.get('confirm_variance_save', False):
-                            proceed_with_save = False
                     
-                    if proceed_with_save:
-                        designs_from_jc = json.loads(selected_jc.get('designs_json', '[]'))
-                        material_type = designs_from_jc[0].get('type', '') if designs_from_jc else ''
-                        thk = designs_from_jc[0].get('thk', 0) if designs_from_jc else 0
-                        material = f"{material_type} {thk}"
+                    designs_from_jc = json.loads(selected_jc.get('designs_json', '[]'))
+                    material_type = designs_from_jc[0].get('type', '') if designs_from_jc else ''
+                    thk = designs_from_jc[0].get('thk', 0) if designs_from_jc else 0
+                    material = f"{material_type} {thk}"
 
-                        request = WeightReceiptRequest(
-                            weight_receipt_number=wr_number,
-                            receipt_date=datetime.now().date(),
-                            job_card_number=selected_jc['job_card_number'],
-                            party_name=selected_jc['party_name'],
-                            po_no=selected_jc.get('po_no'),
-                            material=material,
-                            sets=selected_jc.get('number_of_cores', 0),
-                            designs=weighed_designs,
-                            weight_entry_type="Loose Strips",
-                            total_weight=None
-                        )
+                    request = WeightReceiptRequest(
+                        weight_receipt_number=wr_number,
+                        receipt_date=datetime.now().date(),
+                        job_card_number=selected_jc['job_card_number'],
+                        party_name=selected_jc['party_name'],
+                        po_no=selected_jc.get('po_no'),
+                        material=material,
+                        sets=selected_jc.get('number_of_cores', 0),
+                        designs=weighed_designs,
+                        weight_entry_type="Loose Strips",
+                        total_weight=None
+                    )
 
-                        with st.spinner("Saving Weight Receipt..."):
-                            success = services.weight_receipt.save_weight_receipt(request)
-                            if success:
-                                st.success(f"Weight Receipt {wr_number} saved successfully!")
-                                # Clear state
-                                if 'wr_number_input' in st.session_state:
-                                    del st.session_state['wr_number_input']
-                                # Reset variance confirmation state
-                                st.session_state.confirm_variance_save = False
-                                st.session_state.show_variance_warning_ui = False
-                                time.sleep(2)
-                                st.rerun()
-                            else:
-                                st.error("Failed to save Weight Receipt.")
-                    
-                    # Reset confirmation if user cancels, or if something else reruns the page
-                    if st.session_state.get('show_variance_warning_ui', False) and not st.session_state.get('confirm_variance_save', False):
-                        # If we were showing the warning UI but didn't confirm, then reset the state.
-                        # This handles cases where user navigates away or changes input after seeing warning.
-                        st.session_state.show_variance_warning_ui = False
-                        st.session_state.confirm_variance_save = False
+                    with st.spinner("Saving Weight Receipt..."):
+                        success = services.weight_receipt.save_weight_receipt(request)
+                        if success:
+                            st.success(f"Weight Receipt {wr_number} saved successfully!")
+                            # Clear state
+                            if 'wr_number_input' in st.session_state:
+                                del st.session_state['wr_number_input']
+                            time.sleep(2)
+                            st.rerun()
+                        else:
+                            st.error("Failed to save Weight Receipt.")
 
 
             elif weight_entry_type == "Building Core":
@@ -209,60 +177,36 @@ def render_weight_receipt_form():
                     if expected_total_weight > 0:
                         variance_percent = abs(actual_total_weight - expected_total_weight) / expected_total_weight * 100
 
-                    proceed_with_save = True
                     if expected_total_weight > 0 and variance_percent > 5:
-                        warning_message = f"Weight variance ({variance_percent:.2f}%) exceeds 5% (Expected: {expected_total_weight:.2f} kg, Actual: {actual_total_weight:.2f} kg)."
+                        warning_message = f"Weight variance ({variance_percent:.2f}%) exceeds 5% (Expected: {expected_total_weight:.2f} kg, Actual: {actual_total_weight:.2f} kg). Proceeding with save."
                         st.warning(warning_message)
-                        
-                        col_warn_1, col_warn_2 = st.columns(2)
-                        with col_warn_1:
-                            if st.button("Proceed Anyway", key="proceed_anyway_button_core"):
-                                st.session_state.confirm_variance_save = True
-                                st.rerun()
-                        with col_warn_2:
-                            if st.button("Cancel Save", key="cancel_save_button_core"):
-                                st.session_state.confirm_variance_save = False
-                                st.session_state.show_variance_warning_ui = False
-                                st.stop()
-
-                        if not st.session_state.get('confirm_variance_save', False):
-                            proceed_with_save = False
                     
-                    if proceed_with_save:
-                        designs_from_jc = json.loads(selected_jc.get('designs_json', '[]'))
-                        material_type = designs_from_jc[0].get('type', '') if designs_from_jc else ''
-                        thk = designs_from_jc[0].get('thk', 0) if designs_from_jc else 0
-                        material = f"{material_type} {thk}"
+                    designs_from_jc = json.loads(selected_jc.get('designs_json', '[]'))
+                    material_type = designs_from_jc[0].get('type', '') if designs_from_jc else ''
+                    thk = designs_from_jc[0].get('thk', 0) if designs_from_jc else 0
+                    material = f"{material_type} {thk}"
 
-                        request = WeightReceiptRequest(
-                            weight_receipt_number=wr_number,
-                            receipt_date=datetime.now().date(),
-                            job_card_number=selected_jc['job_card_number'],
-                            party_name=selected_jc['party_name'],
-                            po_no=selected_jc.get('po_no'),
-                            material=material,
-                            sets=selected_jc.get('number_of_cores', 0),
-                            designs=weighed_designs,
-                            weight_entry_type="Building Core",
-                            total_weight=total_weight
-                        )
+                    request = WeightReceiptRequest(
+                        weight_receipt_number=wr_number,
+                        receipt_date=datetime.now().date(),
+                        job_card_number=selected_jc['job_card_number'],
+                        party_name=selected_jc['party_name'],
+                        po_no=selected_jc.get('po_no'),
+                        material=material,
+                        sets=selected_jc.get('number_of_cores', 0),
+                        designs=weighed_designs,
+                        weight_entry_type="Building Core",
+                        total_weight=total_weight
+                    )
 
-                        with st.spinner("Saving Weight Receipt..."):
-                            success = services.weight_receipt.save_weight_receipt(request)
-                            if success:
-                                st.success(f"Weight Receipt {wr_number} saved successfully!")
-                                # Clear state
-                                if 'wr_number_input' in st.session_state:
-                                    del st.session_state['wr_number_input']
-                                # Reset variance confirmation state
-                                st.session_state.confirm_variance_save = False
-                                st.session_state.show_variance_warning_ui = False
-                                time.sleep(2)
-                                st.rerun()
-                            else:
-                                st.error("Failed to save Weight Receipt.")
-                    
-                    # Reset confirmation if user cancels, or if something else reruns the page
-                    if st.session_state.get('show_variance_warning_ui', False) and not st.session_state.get('confirm_variance_save', False):
-                        st.session_state.show_variance_warning_ui = False
-                        st.session_state.confirm_variance_save = False
+                    with st.spinner("Saving Weight Receipt..."):
+                        success = services.weight_receipt.save_weight_receipt(request)
+                        if success:
+                            st.success(f"Weight Receipt {wr_number} saved successfully!")
+                            # Clear state
+                            if 'wr_number_input' in st.session_state:
+                                del st.session_state['wr_number_input']
+                            time.sleep(2)
+                            st.rerun()
+                        else:
+                            st.error("Failed to save Weight Receipt.")
