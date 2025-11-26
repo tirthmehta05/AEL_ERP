@@ -552,31 +552,70 @@ class PDFService:
         # --- Items Table Rows ---
         pdf.set_font("Helvetica", '', 10)
         total_weight = 0
-        row_height = 12 
+        row_height = 8 # Use a consistent row height
 
-        for i, item in enumerate(designs):
-            start_y = pdf.get_y()
-            
-            pdf.cell(20, row_height, str(i + 1), border=1, align='C')
-            
-            desc_x = pdf.get_x()
-            pdf.multi_cell(140, row_height / 2,
-                           f"{item.get('width', '')} X {item.get('length', '')} X {item.get('mm_stack', '')}\n{item.get('remark', '')}",
-                           border=1, align='C')
-            
-            weight = float(item.get('actual_weight', 0))
-            total_weight += weight
-            pdf.set_xy(desc_x + 140, start_y)
-            pdf.cell(30, row_height, f"{weight:.3f}", border=1, align='R', ln=True)
+        is_core_building = receipt_data.get('WeightEntryType') == 'Building Core'
+        core_receipt_remark = ""
+        if is_core_building and designs:
+            core_receipt_remark = designs[0].get('remark', '')
+
+        if is_core_building:
+            total_weight = float(receipt_data.get('TotalWeight', 0))
+            for i, item in enumerate(designs):
+                start_y = pdf.get_y()
+                pdf.cell(20, row_height, str(i + 1), border=1, align='C')
+                
+                desc_x = pdf.get_x()
+                description = f"{item.get('width', '')} X {item.get('length', '')}"
+                if item.get('mm_stack'):
+                    description += f" X {item.get('mm_stack', '')}"
+                
+                # Use multi_cell for description but manage positioning manually
+                pdf.multi_cell(140, row_height, description, border=1, align='C', ln=1)
+                
+                # Manually set position for the next cell
+                pdf.set_xy(desc_x + 140, start_y)
+                pdf.cell(30, row_height, "", border=1, align='R', ln=True) # No individual weight
+        else: # Loose strips or legacy
+            for i, item in enumerate(designs):
+                start_y = pdf.get_y()
+                pdf.cell(20, row_height, str(i + 1), border=1, align='C')
+                
+                desc_x = pdf.get_x()
+                description = f"{item.get('width', '')} X {item.get('length', '')}"
+                if item.get('mm_stack'):
+                    description += f" X {item.get('mm_stack', '')}"
+                
+                item_remark = item.get('remark', '')
+                if item_remark:
+                    # Use a second line for remark instead of multi_cell to control height
+                    pdf.cell(140, row_height / 2, description, border='LRT', align='C', ln=2) # Go to next line
+                    pdf.set_x(desc_x)
+                    pdf.cell(140, row_height / 2, item_remark, border='LRB', align='C')
+                else:
+                    pdf.cell(140, row_height, description, border=1, align='C')
+
+                weight = float(item.get('actual_weight') or 0)
+                total_weight += weight
+
+                pdf.set_xy(desc_x + 140, start_y)
+                pdf.cell(30, row_height, f"{weight:.3f}" if weight > 0 else "", border=1, align='R', ln=True)
 
         # --- Table Footer ---
-        pdf.set_font("Helvetica", '', 12)
-        pdf.cell(20, 8, '', border='LB') # Empty Sr No cell
-        pdf.cell(60, 8, f"Type: {receipt_data.get('Material', 'N/A')}", border='B')
-        pdf.cell(40, 8, f"Set: {receipt_data.get('Sets', 'N/A')}", border='B')
+        pdf.set_font("Helvetica", '', 10)
+        # Empty Sr No cell (20mm)
+        pdf.cell(20, 8, '', border='LTB')
+
+        # Type (40mm) + Set (20mm) + Remark (80mm) = 140mm (Description column width)
+        pdf.cell(40, 8, f"Type: {receipt_data.get('Material', 'N/A')}", border='TB')
+        pdf.cell(20, 8, f"Set: {receipt_data.get('Sets', 'N/A')}", border='TB')
+        
+        remark_text = f"Remark: {core_receipt_remark}" if is_core_building and core_receipt_remark else ""
+        pdf.cell(80, 8, remark_text, border='TB')
+
+        # Weight (30mm)
         pdf.set_font("Helvetica", 'B', 10)
-        pdf.cell(40, 8, "Weight:", border='B', align='R')
-        pdf.cell(30, 8, f"{total_weight:.3f}", border='LBR', align='R', ln=True)
+        pdf.cell(30, 8, f"Weight: {total_weight:.3f}", border=1, align='R', ln=True)
         pdf.ln(2)
 
         # --- Details below table ---
