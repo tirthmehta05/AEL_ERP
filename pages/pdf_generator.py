@@ -143,35 +143,75 @@ def render_delivery_challan_tab(services: AppServices):
                 # --- Data Transformation Logic ---
                 def _prepare_challan_data(receipts_df):
                     items = []
+                    # Group by JobCardNumber to consolidate items
                     for job_card_number, group in receipts_df.groupby("JobCardNumber"):
                         first_row = group.iloc[0]
                         line_items = []
-                        total_weight = 0
-                        for _, row in group.iterrows():
-                            designs = json.loads(row.get('DesignDetailsWithWeightsJSON', '[]'))
-                            if isinstance(designs, list):
-                                for design in designs:
-                                    remark = design.get('remark', '')
-                                    description = f"{design.get('width', '')} X {design.get('length', '')} X {design.get('mm_stack', '')}"
+                        total_job_card_weight = 0
+
+                        # Each row in the group is a Weight Receipt
+                        for _, receipt_row in group.iterrows():
+                            is_core_building = receipt_row.get('WeightEntryType') == 'Building Core'
+                            
+                            if is_core_building:
+                                core_weight = float(receipt_row.get('TotalWeight') or 0)
+                                if core_weight > 0:
+                                    designs = json.loads(receipt_row.get('DesignDetailsWithWeightsJSON', '[]'))
+                                    
+                                    design_summaries = []
+                                    if isinstance(designs, list):
+                                        for d in designs:
+                                            summary = f"{d.get('width','')}x{d.get('length','')}"
+                                            if d.get('mm_stack'):
+                                                summary += f"x{d.get('mm_stack')}"
+                                            design_summaries.append(summary)
+
+                                    description = f"Core Assembly ({', '.join(design_summaries)})"
+                                    # Use remark from the first design if available
+                                    remark = designs[0].get('remark', '') if designs else ''
                                     if remark:
                                         description += f" ({remark})"
-                                    
+
                                     line_items.append({
                                         "description": description,
-                                        "weight": design.get('actual_weight', 0)
+                                        "weight": core_weight
                                     })
-                                    total_weight += design.get('actual_weight', 0)
+                                    total_job_card_weight += core_weight
+                            else:
+                                # Legacy or "Loose Strips" logic
+                                designs = json.loads(receipt_row.get('DesignDetailsWithWeightsJSON', '[]'))
+                                if isinstance(designs, list):
+                                    for design in designs:
+                                        weight = float(design.get('actual_weight') or 0)
+                                        if weight > 0:
+                                            remark = design.get('remark', '')
+                                            description = f"{design.get('width', '')} X {design.get('length', '')}"
+                                            if design.get('mm_stack'):
+                                                description += f" X {design.get('mm_stack', '')}"
+                                            
+                                            if remark:
+                                                description += f" ({remark})"
+                                            
+                                            line_items.append({
+                                                "description": description,
+                                                "weight": weight
+                                            })
+                                            total_job_card_weight += weight
                         
-                        items.append({
-                            "job_no": job_card_number,
-                            "po_no": first_row.get('PONumber', ''),
-                            "line_items": line_items,
-                            "summary": {
-                                "material": first_row.get('Material', ''),
-                                "sets": first_row.get('Sets', 0),
-                                "total_weight": total_weight
-                            }
-                        })
+                        if line_items:
+                            items.append({
+                                "job_no": job_card_number,
+                                "po_no": first_row.get('PONumber', ''),
+                                "line_items": line_items,
+                                "summary": {
+                                    "material": first_row.get('Material', ''),
+                                    "sets": first_row.get('Sets', 0),
+                                    "total_weight": total_job_card_weight
+                                }
+                            })
+
+                    if not items:
+                        return None
 
                     challan_data = {
                         "challan_details": {
@@ -278,9 +318,21 @@ def render_weight_receipt_tab(services: AppServices):
             st.markdown(f"**Date:** {selected_receipt.get('Date')}")
             st.markdown(f"**Job Card No:** {selected_receipt.get('JobCardNumber')}")
 
+            is_core_building = selected_receipt.get('WeightEntryType') == 'Building Core'
+            
+            if is_core_building:
+                st.markdown(f"**Weight Entry Type:** Building Core")
+                st.markdown(f"**Total Weight:** {float(selected_receipt.get('TotalWeight', 0.0) or 0.0):.2f} kg")
+
             designs = json.loads(selected_receipt.get('DesignDetailsWithWeightsJSON', '[]'))
             st.markdown("**Designs:**")
-            st.dataframe(pd.DataFrame(designs))
+            
+            df = pd.DataFrame(designs)
+            if is_core_building:
+                # For core building, actual_weight is not relevant per design
+                st.dataframe(df.drop(columns=['actual_weight'], errors='ignore'))
+            else:
+                st.dataframe(df)
 
             if st.button("Generate PDF for this Weight Receipt"):
                 with st.spinner("Generating PDF..."):

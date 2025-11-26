@@ -56,6 +56,8 @@ class WeightReceiptService:
                 material=request.material,
                 sets=request.sets,
                 designs_json=designs_json,
+                weight_entry_type=request.weight_entry_type,
+                total_weight=request.total_weight,
             )
 
             success = self.repository.save_weight_receipt(record.to_list())
