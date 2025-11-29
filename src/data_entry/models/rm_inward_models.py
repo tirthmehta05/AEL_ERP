@@ -14,7 +14,7 @@ class RMInwardIssueRequest(BaseModel):
     coil_number: Annotated[str, BeforeValidator(force_str)] = Field(..., min_length=1, description="Coil Number")
     grade: str = Field(..., min_length=1, description="Grade")
     thk: float = Field(..., gt=0, description="Thk")
-    width: int = Field(..., gt=0, description="Width")
+    width: float = Field(..., gt=0, description="Width")
     coating: str = Field(..., min_length=1, description="Coating")
     coil_weight: float = Field(..., gt=0, description="Coil Weight")
     po_number: Optional[str] = Field(default=None, description="PO Number")
@@ -50,7 +50,7 @@ class RMInwardIssueRecord(BaseModel):
     coil_number: str
     grade: str
     thk: float
-    width: int
+    width: float
     coating: str
     coil_weight: float
     po_number: Optional[str] = None

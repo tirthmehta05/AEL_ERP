@@ -315,7 +315,7 @@ class RMInwardService:
             errors.append("Thk must be a valid number.")
         try:
             if form_data.get("width"):
-                int(form_data["width"])
+                float(form_data["width"])
         except (ValueError, TypeError):
             errors.append("Width must be a valid number.")
 
