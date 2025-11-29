@@ -36,6 +36,14 @@ def test_validate_single_entry_success(inward_service):
     errors = inward_service.validate_single_entry(form_data)
     assert not errors
 
+    # Test with float width
+    form_data_float_width = {
+        'receipt_date': datetime.now().date(), 'rm_type': 'HR', 'grade': 'A', 'thk': '1', 'width': '1000.5',
+        'coating': 'None', 'supplier': 'JSW', 'coil_number': 'TEST002', 'coil_weight': 100
+    }
+    errors_float_width = inward_service.validate_single_entry(form_data_float_width)
+    assert not errors_float_width
+
 def test_validate_single_entry_fails_non_unique(inward_service):
     """Test that validation fails for a non-unique coil number."""
     inward_service.is_coil_number_unique = MagicMock(return_value=False)

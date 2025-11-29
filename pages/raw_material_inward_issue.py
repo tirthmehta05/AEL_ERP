@@ -90,7 +90,7 @@ def render_raw_material_inward_issue_form() -> None:
                     "coil_number": st.session_state.coil_number_input,
                     "grade": st.session_state.grade,
                     "thk": float(st.session_state.thk),
-                    "width": int(st.session_state.width),
+                    "width": float(st.session_state.width),
                     "coating": st.session_state.coating,
                     "coil_weight": st.session_state.coil_weight,
                     "po_number": st.session_state.po_number or None,
