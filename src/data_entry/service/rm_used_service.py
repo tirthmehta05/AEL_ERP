@@ -64,14 +64,14 @@ class RMUsedService:
         """Get all dropdown data from the main Raw Material Used sheet"""
         try:
             if not self.google_service.client:
-                logging.warning(
+                logger.warning(
                     "Google Drive client not initialized. Using empty dropdown data."
                 )
                 return DropdownData()
 
             # Test connection once
             if not self.google_service.test_connection(self.spreadsheet_id):
-                logging.error(f"Cannot connect to spreadsheet: {self.spreadsheet_id}")
+                logger.error(f"Cannot connect to spreadsheet: {self.spreadsheet_id}")
                 return DropdownData()
 
             # Load data from all sheets

@@ -71,7 +71,7 @@ class SlittingPlanService:
         sales_order_df = self.repository.fetch_sales_order_data()
         if sales_order_df.empty:
             return []
-        return ["All"] + list(sales_order_df["Material Type"].dropna().unique())
+        return ["All"] + list(sales_order_df["Material Type"].str.strip().dropna().unique())
 
     def get_sales_order_summary(self, start_date, end_date, material_type) -> pd.DataFrame:
         sales_order_df = self.repository.fetch_sales_order_data()
@@ -86,7 +86,7 @@ class SlittingPlanService:
         ]
 
         if material_type != "All":
-            filtered_df = filtered_df[filtered_df["Material Type"] == material_type]
+            filtered_df = filtered_df[filtered_df["Material Type"].str.strip() == material_type]
 
         filtered_df = filtered_df.copy()
 
