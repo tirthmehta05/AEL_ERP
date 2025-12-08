@@ -416,76 +416,186 @@ class PDFService:
         return bytes(pdf.output(dest='S'))
 
     def generate_delivery_challan_pdf(self, data: dict) -> bytes:
-        """Generates a Delivery Challan PDF from a structured dictionary."""
+        """Generates a Delivery Challan PDF from a structured dictionary using a hybrid border approach."""
         pdf = FPDF(orientation='P', unit='mm', format='A4')
         pdf.add_page()
         pdf.set_auto_page_break(auto=True, margin=15)
-
-        # Header
-        pdf.set_font("Helvetica", 'B', 16)
-        pdf.cell(0, 10, "Delivery Challan Report", ln=True, align='C')
-        pdf.ln(5)
-
-        # From/To addresses
-        challan_details = data['challan_details']
-        pdf.set_font("Helvetica", '', 12)
-        pdf.cell(95, 8, "From:", ln=False)
-        pdf.cell(95, 8, f"To M/S.: {challan_details['to_customer']}", ln=True)
-        
-        pdf.set_font("Helvetica", 'B', 12)
-        pdf.cell(95, 8, challan_details['from_company']['name'], ln=True)
         pdf.set_font("Helvetica", '', 10)
-        pdf.multi_cell(95, 5, challan_details['from_company']['address'])
-        pdf.ln(5)
+        
+        challan_details = data['challan_details']
+        
+        # --- Header Section ---
+        page_width = pdf.w - 2 * pdf.l_margin
+        
+        pdf.rect(pdf.l_margin, pdf.t_margin, page_width / 2, 30)
+        pdf.set_y(pdf.t_margin + 2)
+        pdf.set_x(pdf.l_margin + 2)
+        pdf.set_font("Helvetica", 'B', 10)
+        pdf.cell(0, 5, "To M/S.:")
+        pdf.set_y(pdf.t_margin + 8)
+        pdf.set_x(pdf.l_margin + 2)
+        pdf.set_font("Helvetica", '', 10)
+        pdf.multi_cell(page_width / 2 - 4, 5, challan_details.get('to_customer', ''))
 
-        # Report Details
-        pdf.cell(95, 8, f"Challan No: {challan_details['challan_no']}", ln=False)
-        pdf.cell(95, 8, f"Challan Date: {challan_details['challan_date']}", ln=True, align='R')
-        pdf.cell(0, 8, f"Vehicle No: {challan_details['vehicle_no']}", ln=True)
-        pdf.ln(5)
+        start_x_from = pdf.l_margin + page_width / 2
+        pdf.rect(start_x_from, pdf.t_margin, page_width / 2, 30)
+        pdf.set_y(pdf.t_margin + 2)
+        pdf.set_x(start_x_from + 2)
+        pdf.set_font("Helvetica", 'B', 10)
+        pdf.multi_cell(page_width / 2 - 4, 5, challan_details['from_company']['name'])
+        pdf.set_y(pdf.t_margin + 8)
+        pdf.set_x(start_x_from + 2)
+        pdf.set_font("Helvetica", '', 10)
+        pdf.multi_cell(page_width / 2 - 4, 5, challan_details['from_company']['address'])
 
-        # Table Header
+        pdf.set_y(pdf.t_margin + 30)
+        pdf.ln(2)
+
+        pdf.set_font("Helvetica", 'B', 12)
+        pdf.cell(0, 8, "Delivery Challan/ Receipt Inspection Report", border=1, ln=True, align='C')
+        
+        pdf.set_font("Helvetica", '', 10)
+        detail_cell_height = 6
+        pdf.cell(page_width / 3, detail_cell_height, f"Challan No: {challan_details.get('challan_no', '')}", border='L')
+        pdf.cell(page_width / 3, detail_cell_height, f"Challan Date: {challan_details.get('challan_date', '')}", border='L', align='C')
+        pdf.cell(page_width / 3, detail_cell_height, f"Vehicle No: {challan_details.get('vehicle_no', '')}", border='LR', ln=True, align='C')
+        
+        # --- Table Header ---
         pdf.set_font("Helvetica", 'B', 10)
         pdf.set_fill_color(230, 230, 230)
-        pdf.cell(40, 8, "Job No", border=1, fill=True, align='C')
-        pdf.cell(30, 8, "P O No", border=1, fill=True, align='C')
-        pdf.cell(90, 8, "Particulars", border=1, fill=True, align='C')
-        pdf.cell(30, 8, "Weight", border=1, fill=True, align='C', ln=True)
+        header_height = 7
+        job_no_w = 30
+        po_no_w = 30
+        weight_w = 30
+        particulars_w = page_width - job_no_w - po_no_w - weight_w
+        desc_w = particulars_w * 0.65
+        remark_w = particulars_w * 0.35
 
+        pdf.cell(job_no_w, header_height, "Job No", border=1, fill=True, align='C')
+        pdf.cell(po_no_w, header_height, "P O No", border=1, fill=True, align='C')
+        pdf.cell(particulars_w, header_height, "Particulars", border=1, fill=True, align='C')
+        pdf.cell(weight_w, header_height, "Weight", border=1, fill=True, align='C', ln=True)
+
+        # --- Table Body ---
         pdf.set_font("Helvetica", '', 10)
+        row_height = 7
+        
+        for item in data.get('items', []):
+            if not item.get('line_items'): continue
 
-        for item in data['items']:
-            # --- First line of the item block ---
-            pdf.cell(40, 8, str(item['job_no']), border='L', align='C')
-            pdf.cell(30, 8, str(item['po_no']), border='L', align='C')
-            pdf.cell(90, 8, item['line_items'][0]['description'], border='L', align='C')
-            if item['line_items'][0]['weight'] is not None:
-                pdf.cell(30, 8, f"{item['line_items'][0]['weight']:.2f}", border='LR', align='R', ln=True)
-            else:
-                pdf.cell(30, 8, "", border='LR', align='R', ln=True)
+            # Check for page break before starting a new job block
+            num_rows_in_block = len(item['line_items']) + 1
+            if pdf.get_y() + (num_rows_in_block * row_height) > (pdf.h - pdf.b_margin - 30):
+                pdf.add_page()
+                # Redraw table header on new page
+                pdf.set_font("Helvetica", 'B', 10)
+                pdf.cell(job_no_w, header_height, "Job No", border=1, fill=True, align='C')
+                pdf.cell(po_no_w, header_height, "P O No", border=1, fill=True, align='C')
+                pdf.cell(particulars_w, header_height, "Particulars", border=1, fill=True, align='C')
+                pdf.cell(weight_w, header_height, "Weight", border=1, fill=True, align='C', ln=True)
+                pdf.set_font("Helvetica", '', 10)
 
-            # --- Subsequent line items ---
-            for i in range(1, len(item['line_items'])):
-                pdf.cell(40, 8, "", border='L', align='C')
-                pdf.cell(30, 8, "", border='L', align='C')
-                pdf.cell(90, 8, item['line_items'][i]['description'], border='L', align='C')
-                if item['line_items'][i]['weight'] is not None:
-                    pdf.cell(30, 8, f"{item['line_items'][i]['weight']:.2f}", border='LR', align='R', ln=True)
-                else:
-                    pdf.cell(30, 8, "", border='LR', align='R', ln=True)
+            # Draw line item rows
+            for idx, line_item in enumerate(item['line_items']):
+                pdf.set_font("Helvetica", 'B' if idx == 0 else '', 10)
+                pdf.cell(job_no_w, row_height, str(item.get('job_no', '')) if idx == 0 else '', border='L', align='C')
+                pdf.cell(po_no_w, row_height, str(item.get('po_no', '')) if idx == 0 else '', border='L', align='C')
+                
+                pdf.set_font("Helvetica", '', 10)
+                x_before_p = pdf.get_x()
+                pdf.cell(desc_w, row_height, " " + line_item.get('description', ''), border='L', align='L')
+                pdf.set_x(x_before_p + desc_w)
+                pdf.cell(remark_w, row_height, line_item.get('remark', '') + " ", align='R')
+                pdf.set_x(x_before_p + particulars_w)
 
-            # --- Summary lines ---
-            pdf.cell(40, 8, "", border='L', align='C')
-            pdf.cell(30, 8, "", border='L', align='C')
-            pdf.cell(90, 8, item['summary']['material'], border='L', align='C')
+                weight_str = f"{line_item['weight']:.2f}" if line_item.get('weight') is not None else ""
+                pdf.cell(weight_w, row_height, weight_str, border='LR', align='R', ln=True)
+
+            # --- Summary Row for Job ---
+            pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y()) # Manual top border for summary
             pdf.set_font("Helvetica", 'B', 10)
-            pdf.cell(30, 8, f"{item['summary']['total_weight']:.2f}", border='LR', align='R', ln=True)
+            
+            pdf.cell(job_no_w, row_height + 1, "", border='LB') # Slightly larger height
+            pdf.cell(po_no_w, row_height + 1, "", border='LB')
+            
+            summary = item.get('summary', {})
+            material_str = str(summary.get('material', ''))
+            set_str = f"Set : {summary.get('sets', 0)}"
+
+            x_before_s = pdf.get_x()
+            pdf.cell(desc_w, row_height + 1, " " + material_str, border='LB', align='L')
+            pdf.set_x(x_before_s + desc_w)
+            pdf.cell(remark_w, row_height + 1, set_str + " ", border='B', align='R')
+            pdf.set_x(x_before_s + particulars_w)
+
+            pdf.cell(weight_w, row_height + 1, f"{summary.get('total_weight', 0):.3f}", border='LBR', align='R', ln=True)
             pdf.set_font("Helvetica", '', 10)
 
-            pdf.cell(40, 8, "", border='LB', align='C')
-            pdf.cell(30, 8, "", border='LB', align='C')
-            pdf.cell(90, 8, f"Set : {item['summary']['sets']}", border='LB', align='C')
-            pdf.cell(30, 8, "", border='LBR', align='R', ln=True)
+        # --- Table Footer ---
+        pdf.ln(5)
+        pdf.set_font("Helvetica", 'B', 10)
+        total_cell_width = page_width - weight_w
+        
+        pdf.cell(total_cell_width, row_height, "Total", border=1, align='R')
+        pdf.cell(weight_w, row_height, f"{data.get('grand_total_weight', 0):.3f}", border=1, align='R', ln=True)
+        pdf.cell(total_cell_width, row_height, "Deduction", border=1, align='R')
+        pdf.cell(weight_w, row_height, "0.000", border=1, align='R', ln=True)
+        pdf.cell(total_cell_width, row_height, "Net Total", border=1, align='R')
+        pdf.cell(weight_w, row_height, f"{data.get('grand_total_weight', 0):.3f}", border=1, align='R', ln=True)
+        pdf.ln(5)
+
+        # --- Notes & Signature Section ---
+        note_box_height = 60 # Increased height to accommodate spacing and content
+
+        if pdf.get_y() > pdf.h - pdf.b_margin - (note_box_height + 20): # Adjusted page break check
+            pdf.add_page()
+
+        note_box_y = pdf.get_y()
+        half_page_width = page_width / 2
+
+        # Draw the outer box and the vertical divider
+        pdf.rect(pdf.l_margin, note_box_y, page_width, note_box_height)
+        pdf.line(pdf.l_margin + half_page_width, note_box_y, pdf.l_margin + half_page_width, note_box_y + note_box_height)
+
+        # --- Left side of the box ---
+        pdf.set_font("Helvetica", '', 9)
+        current_x = pdf.l_margin + 2
+        current_y = note_box_y + 2
+
+        # "Note:"
+        pdf.set_xy(current_x, current_y)
+        pdf.cell(half_page_width - 4, 5, "Note:")
+        current_y = pdf.get_y() + 5 # Advance y by height of "Note:"
+        current_y += (5 * 5) # 5 lines space (5mm per line)
+
+        # "E. & O.E."
+        pdf.set_xy(current_x, current_y)
+        pdf.cell(half_page_width - 4, 5, "E. & O.E.")
+        current_y = pdf.get_y() + 5 # Advance y by height of "E. & O.E."
+
+        # "Mentioned product(s)..."
+        pdf.set_xy(current_x, current_y)
+        pdf.multi_cell(half_page_width - 4, 4, "Mentioned product(s) are received in the good Condition at our side.")
+        current_y = pdf.get_y() # Get new Y after multi_cell
+        current_y += (2 * 4) # 2 lines space (4mm per line for multi_cell text)
+
+
+        # Receiver's Signature (bottom of left half)
+        final_signature_y = note_box_y + note_box_height - 8 # Anchored to bottom of box
+
+        pdf.set_xy(pdf.l_margin, final_signature_y)
+        pdf.cell(half_page_width, 5, "Receiver's Signature", align='C')
+
+        # --- Right side of the box ---
+        # For Amba Enterprise Ltd. (bottom of right half)
+        pdf.set_xy(pdf.l_margin + half_page_width, final_signature_y)
+        pdf.cell(half_page_width, 5, f"For {challan_details['from_company']['name']}", align='C', ln=True)
+
+        # --- Final text below the box ---
+        pdf.set_y(note_box_y + note_box_height + 10) # Position below the box with a margin
+        pdf.set_font("Helvetica", '', 10)
+        pdf.cell(page_width / 2, 6, "Prepared By", align='L')
+        pdf.cell(page_width / 2, 6, "Verified By", align='R', ln=True)
 
         return bytes(pdf.output(dest='S'))
 

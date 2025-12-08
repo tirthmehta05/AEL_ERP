@@ -22,6 +22,11 @@ def get_job_cards(_services: AppServices, start, end):
     return _services.pdf.get_sales_orders_for_job_card(start_date=start, end_date=end)
 
 @st.cache_data
+def get_sales_order_dropdown_data(_services: AppServices):
+    """Cached function to fetch dropdown data for sales orders."""
+    return _services.sales_order.get_dropdown_data()
+
+@st.cache_data
 def get_weight_receipts(_services: AppServices, party_name: str, start_date, end_date):
     """Cached function to fetch weight receipt data."""
     return _services.weight_receipt.get_weight_receipts_for_party_and_date_range(party_name, start_date, end_date)
@@ -109,7 +114,7 @@ def render_delivery_challan_tab(services: AppServices):
     # --- Filters ---
     col1, col2, col3 = st.columns(3)
     with col1:
-        party_names = services.sales_order.get_dropdown_data().party_names
+        party_names = get_sales_order_dropdown_data(services).party_names
         selected_party = st.selectbox("Select Party", options=[""] + party_names, key="dc_party")
     with col2:
         start_date = st.date_input("Start Date", datetime.now() - timedelta(days=30), key="dc_start_date")
@@ -143,6 +148,7 @@ def render_delivery_challan_tab(services: AppServices):
                 # --- Data Transformation Logic ---
                 def _prepare_challan_data(receipts_df):
                     items = []
+                    grand_total_weight = 0
                     # Group by JobCardNumber to consolidate items
                     for job_card_number, group in receipts_df.groupby("JobCardNumber"):
                         first_row = group.iloc[0]
@@ -158,24 +164,17 @@ def render_delivery_challan_tab(services: AppServices):
                                 if core_weight > 0:
                                     designs = json.loads(receipt_row.get('DesignDetailsWithWeightsJSON', '[]'))
                                     
-                                    design_summaries = []
                                     if isinstance(designs, list):
-                                        for d in designs:
-                                            summary = f"{d.get('width','')}x{d.get('length','')}"
-                                            if d.get('mm_stack'):
-                                                summary += f"x{d.get('mm_stack')}"
-                                            design_summaries.append(summary)
-
-                                    description = f"Core Assembly ({', '.join(design_summaries)})"
-                                    # Use remark from the first design if available
-                                    remark = designs[0].get('remark', '') if designs else ''
-                                    if remark:
-                                        description += f" ({remark})"
-
-                                    line_items.append({
-                                        "description": description,
-                                        "weight": core_weight
-                                    })
+                                        for design in designs:
+                                            description = f"{design.get('width', '')} X {design.get('length', '')}"
+                                            if design.get('mm_stack'):
+                                                description += f" X {design.get('mm_stack', '')}"
+                                            
+                                            line_items.append({
+                                                "description": description,
+                                                "remark": design.get('remark', ''),
+                                                "weight": None # No individual weight for core building
+                                            })
                                     total_job_card_weight += core_weight
                             else:
                                 # Legacy or "Loose Strips" logic
@@ -189,16 +188,15 @@ def render_delivery_challan_tab(services: AppServices):
                                             if design.get('mm_stack'):
                                                 description += f" X {design.get('mm_stack', '')}"
                                             
-                                            if remark:
-                                                description += f" ({remark})"
-                                            
                                             line_items.append({
                                                 "description": description,
+                                                "remark": remark,
                                                 "weight": weight
                                             })
                                             total_job_card_weight += weight
                         
                         if line_items:
+                            grand_total_weight += total_job_card_weight
                             items.append({
                                 "job_no": job_card_number,
                                 "po_no": first_row.get('PONumber', ''),
@@ -224,7 +222,8 @@ def render_delivery_challan_tab(services: AppServices):
                             "challan_date": datetime.now().strftime("%d/%m/%Y"),
                             "vehicle_no": ""
                         },
-                        "items": items
+                        "items": items,
+                        "grand_total_weight": grand_total_weight
                     }
                     return challan_data
 
@@ -291,7 +290,7 @@ def render_weight_receipt_tab(services: AppServices):
     # --- Filters ---
     col1, col2, col3 = st.columns(3)
     with col1:
-        party_names = services.sales_order.get_dropdown_data().party_names
+        party_names = get_sales_order_dropdown_data(services).party_names
         selected_party = st.selectbox("Select Party", options=[""] + party_names, key="wr_party")
     with col2:
         start_date = st.date_input("Start Date", datetime.now() - timedelta(days=30), key="wr_start_date")
@@ -354,6 +353,7 @@ def render_pdf_generator_page():
             get_available_coils.clear()
             get_printable_plans.clear()
             get_job_cards.clear()
+            get_sales_order_dropdown_data.clear()
             get_weight_receipts.clear()
             st.toast("PDF Generator cache cleared!")
         except NameError: # Functions might not be defined if tabs are not rendered
