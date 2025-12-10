@@ -6,6 +6,12 @@ from src.data_entry.service.rm_used_service import RMUsedService
 from src.data_entry.models.rm_used_models import RMUsedRequest
 from theme.components import render_main_header, end_card
 
+
+@st.cache_resource
+def load_dropdowns(_service: RMUsedService):
+    return _service.get_dropdown_data()
+
+
 def render_raw_material_used_form() -> None:
     """Renders the Raw Material Used form"""
     data_service = RMUsedService()
@@ -19,10 +25,6 @@ def render_raw_material_used_form() -> None:
         st.session_state.remarks = None
         st.session_state.available_weight = 0.0
         st.session_state.form_submitted_successfully = False
-
-    @st.cache_resource
-    def load_dropdowns(_service: RMUsedService):
-        return _service.get_dropdown_data()
 
     dropdowns = load_dropdowns(data_service)
 

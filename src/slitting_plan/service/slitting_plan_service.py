@@ -31,6 +31,23 @@ class SlittingPlanService:
 
         return available_coils_df[available_coils_df["available_weight"] > 0]
 
+    def get_available_coils_by_date(self, start_date=None, end_date=None) -> pd.DataFrame:
+        """
+        Calculates the available weight for each coil by processing date-filtered inward data and all used data.
+        """
+        inward_df = self.repository.fetch_inward_data(start_date=start_date, end_date=end_date)
+        used_df = self.repository.fetch_used_data()  # Used data is not filtered by date
+
+        if inward_df.empty:
+            return pd.DataFrame()
+
+        inward_grouped = self._process_inward_data(inward_df)
+        used_grouped = self._process_used_data(used_df)
+        
+        available_coils_df = self._calculate_available_weight(inward_grouped, used_grouped)
+
+        return available_coils_df[available_coils_df["available_weight"] > 0]
+
     def _process_inward_data(self, inward_df: pd.DataFrame) -> pd.DataFrame:
         """Groups and aggregates the inward raw material data."""
         inward_df["Coil Weight"] = pd.to_numeric(inward_df["Coil Weight"], errors='coerce').fillna(0)

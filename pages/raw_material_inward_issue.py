@@ -9,6 +9,12 @@ from src.slitting_plan.service.slitting_plan_service import SlittingPlanService
 from src.data_entry.models.rm_inward_models import RMInwardIssueRequest
 from theme.components import render_main_header, end_card
 
+
+@st.cache_resource(ttl=600)
+def load_dropdowns(_service: RMInwardService):
+    return _service.get_dropdown_data()
+
+
 def render_raw_material_inward_issue_form() -> None:
     """Renders the Raw Material Inward Issue page with single and bulk entry options."""
     data_service = RMInwardService()
@@ -27,10 +33,6 @@ def render_raw_material_inward_issue_form() -> None:
             if key in st.session_state:
                 del st.session_state[key]
         st.session_state.form_submitted_successfully = False
-
-    @st.cache_resource(ttl=600)
-    def load_dropdowns(_service: RMInwardService):
-        return _service.get_dropdown_data()
 
     @st.cache_data(ttl=3600)
     def get_cached_mapping_templates():
