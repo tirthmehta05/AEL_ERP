@@ -5,7 +5,6 @@ import pandas as pd
 import qrcode
 from src.slitting_plan.service.slitting_plan_service import SlittingPlanService
 from src.data_entry.service.sales_order_service import SalesOrderService
-from src.data_entry.service.rm_used_service import RMUsedService
 from src.data_entry.service.weight_receipt_service import WeightReceiptService
 from fpdf import FPDF
 import json
@@ -14,7 +13,6 @@ class PDFService:
     def __init__(self, sales_order_service: SalesOrderService):
         self.slitting_service = SlittingPlanService()
         self.sales_order_service = sales_order_service
-        self.rm_used_service = RMUsedService()
         self.weight_receipt_service = WeightReceiptService()
 
     def get_sales_orders_for_job_card(self, start_date=None, end_date=None):
@@ -273,7 +271,7 @@ class PDFService:
         pdf.cell(30, 8, "Pcs", border=1, fill=True, align='C')
         pdf.cell(30, 8, "Weight", border=1, fill=True, align='C', ln=True)
 
-    def _draw_job_card(self, pdf: FPDF, job_card_data: dict):
+    def _draw_job_card(self, pdf: FPDF, job_card_data: dict, all_used_coils_df: pd.DataFrame):
         """Draws a single job card on the current PDF page."""
         pdf.add_page()
 
@@ -400,7 +398,9 @@ class PDFService:
         pdf.cell(90, 8, "Weight Used (kg)", border=1, fill=True, align='C', ln=True)
 
         pdf.set_font("Helvetica", '', 10)
-        assigned_coils = self.rm_used_service.get_coils_for_job_card(job_card_data['job_card_number'])
+        job_card_no = job_card_data['job_card_number']
+        assigned_coils_for_card = all_used_coils_df[all_used_coils_df['Card No'] == job_card_no]
+        assigned_coils = assigned_coils_for_card.to_dict('records')
         if assigned_coils:
             for coil in assigned_coils:
                 pdf.cell(100, 8, str(coil.get('Coil No', 'N/A')), border=1, align='C')
@@ -411,8 +411,9 @@ class PDFService:
     def generate_job_card_pdf(self, selected_job_cards: List[dict]) -> bytes:
         """Generates a PDF for the selected job cards.""" 
         pdf = FPDF(orientation='P', unit='mm', format='A4')
+        all_used_coils_df = self.sales_order_service.get_all_assigned_coils_df()
         for job_card in selected_job_cards:
-            self._draw_job_card(pdf, job_card)
+            self._draw_job_card(pdf, job_card, all_used_coils_df)
         return bytes(pdf.output(dest='S'))
 
     def generate_delivery_challan_pdf(self, data: dict) -> bytes:
