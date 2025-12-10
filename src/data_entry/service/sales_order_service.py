@@ -204,11 +204,11 @@ class SalesOrderService:
                     request.job_card_number, request.order_date.strftime("%m/%d/%Y"), request.po_no,
                     design.party_job_no, request.party_name, design.width, design.length, design.mm_stack,
                     design.mm_stack, request.hole_size, None, design.sets, design.sets, design.type,
-                    design.thk, request.rate_per_kg, request.delivery_date.strftime("%m/%d/%Y"), None
+                    design.thk, request.rate_per_kg, request.delivery_date.strftime("%m/%d/%Y"), design.fm_name
                 ])
             
             logger.info(f"Attempting to save {len(sales_order_rows)} rows to 'Sales Order' sheet.")
-            success_so = self.google_service.append_data(self.spreadsheet_id, "Sales Order", sales_order_rows)
+            success_so = self.google_service.insert_row_before_last(self.spreadsheet_id, "Sales Order", sales_order_rows)
 
             if not success_so:
                 logger.error(f"Failed to save design details for SO {request.job_card_number}.")
@@ -404,12 +404,6 @@ class SalesOrderService:
             logger.error(f"Error fetching job cards for party {party_name}: {str(e)}")
             return []
 
-    def get_all_assigned_coils_df(self) -> pd.DataFrame:
-        """
-        Fetches the entire 'Raw Material Used' sheet to get all assigned coils.
-        This is a delegation to the RMUsedService for architectural clarity.
-        """
-        return self.rm_used_service.get_all_used_coils_df()
     def get_all_assigned_coils_df(self) -> pd.DataFrame:
         """
         Fetches the entire 'Raw Material Used' sheet to get all assigned coils.

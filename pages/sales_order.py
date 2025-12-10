@@ -217,6 +217,7 @@ def add_ready_design_to_state(width, length):
 
         design = DesignDetail(
             party_job_no=st.session_state.ready_card_no or f"RN-{int(time.time())}",
+            fm_name=st.session_state.ready_fm_name,
             width=width, 
             length=length,
             weight=weight, 
