@@ -5,6 +5,7 @@ from datetime import date
 class DesignDetail(BaseModel):
     """Model for a single design detail line item in a Sales Order."""
     party_job_no: Optional[str] = None
+    fm_name: Optional[str] = None
     width: float
     length: float
     mm_stack: Optional[float] = None

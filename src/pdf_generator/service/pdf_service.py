@@ -25,24 +25,25 @@ class PDFService:
     def _draw_sticker(self, pdf: FPDF, x: float, y: float, coil: pd.Series):
         """Draws a single sticker at the specified (x, y) coordinates."""
         sticker_width = 95
-        sticker_height = 55
-        margin = 4
+        sticker_height = 44.5  # Reduced height for 12 stickers per page
+        margin = 2 # Reduced margin to create more space
 
         pdf.rect(x, y, sticker_width, sticker_height)
         
         # 1. Company Name
-        pdf.set_xy(x + margin, y + 2)
+        pdf.set_xy(x + margin, y + 1)
         pdf.set_font("Helvetica", 'B', 10)
-        pdf.cell(sticker_width - 2 * margin, 5, "Amba Enterprise Limited", align='C')
+        pdf.cell(sticker_width - 2 * margin, 4, "Amba Enterprise Limited", align='C')
 
-        # 2. Coil Number
-        pdf.set_xy(x + margin, y + 8)
-        pdf.set_font("Helvetica", 'B', 14)
-        pdf.multi_cell(sticker_width - 2 * margin, 5, f"{coil['Coil Number']}", align='C')
+        # 2. Coil Number (Larger Font)
+        pdf.set_xy(x + margin, y + 6)
+        pdf.set_font("Helvetica", 'B', 18)
+        # Use multi_cell to allow wrapping for longer coil numbers, preventing truncation
+        pdf.multi_cell(sticker_width - 2 * margin, 8, f"{coil['Coil Number']}", align='C')
 
-        # 3. Other Details (allow for 2 lines of coil number)
-        qr_size = 22 # Define QR size before using it for width calculation
-        pdf.set_xy(x + margin, y + 20)
+        # 3. Other Details (Original Font Size)
+        qr_size = 22 # Kept original QR size
+        pdf.set_xy(x + margin, y + 16) # Adjusted Y position
         pdf.set_font("Helvetica", '', 9)
         details_text = (
             f"Weight: {coil['available_weight']:.2f} kg\n"
@@ -52,11 +53,12 @@ class PDFService:
             f"Coating: {coil['coating']}\n"
             f"Supplier: {coil['coil_supplier']}"
         )
-        pdf.multi_cell(sticker_width - qr_size - (2 * margin), 4, details_text)
+        # Reduced line height from 4 to 3.8 to fit
+        pdf.multi_cell(sticker_width - qr_size - (2 * margin), 3.8, details_text)
 
-        # 4. QR Code
+        # 4. QR Code (Original Data)
         qr_x = x + sticker_width - qr_size - margin
-        qr_y = y + sticker_height - qr_size - margin
+        qr_y = y + sticker_height - qr_size - margin # Positioned at the bottom right
         
         qr_data = (
             f"Coil Number: {coil['Coil Number']}\n"
@@ -67,6 +69,7 @@ class PDFService:
             f"Coating: {coil['coating']}\n"
             f"Supplier: {coil['coil_supplier']}"
         )
+        # Using original box_size=3
         qr = qrcode.QRCode(version=1, box_size=3, border=2)
         qr.add_data(qr_data)
         qr.make(fit=True)
@@ -79,18 +82,18 @@ class PDFService:
         pdf.image(qr_bytes, x=qr_x, y=qr_y, w=qr_size, h=qr_size, type='PNG')
 
     def generate_sticker_pdf(self, selected_coils: pd.DataFrame) -> bytes:
-        """Generates a PDF with a 2x5 grid of stickers."""
+        """Generates a PDF with a 2x6 grid of stickers."""
         pdf = FPDF(orientation='P', unit='mm', format='A4')
         pdf.add_page()
 
         margin_horiz = 10
         margin_vert = 10
         sticker_width = 95
-        sticker_height = 55
+        sticker_height = 44.5 # Reduced height for 12 stickers
 
         sticker_count = 0
         for _, coil in selected_coils.iterrows():
-            if sticker_count >= 10:
+            if sticker_count >= 12: # Changed to 12 for a 2x6 grid
                 pdf.add_page()
                 sticker_count = 0
 
@@ -360,7 +363,10 @@ class PDFService:
                 pdf.set_font("Helvetica", 'B', 12)
 
             pdf.cell(15, row_height, str(i + 1), border=1, align='C')
-            pdf.cell(50, row_height, f"{item.get('width', 'N/A')} X {item.get('length', 'N/A')}", border=1, align='C')
+            description = item.get('fm_name')
+            if not description:
+                description = f"{item.get('width', 'N/A')} X {item.get('length', 'N/A')}"
+            pdf.cell(50, row_height, description, border=1, align='C')
             
             hole_cell_width = 35
             hole_cell_x = pdf.get_x()
