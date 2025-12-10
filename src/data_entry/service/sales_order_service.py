@@ -403,3 +403,16 @@ class SalesOrderService:
         except Exception as e:
             logger.error(f"Error fetching job cards for party {party_name}: {str(e)}")
             return []
+
+    def get_all_assigned_coils_df(self) -> pd.DataFrame:
+        """
+        Fetches the entire 'Raw Material Used' sheet to get all assigned coils.
+        This is a delegation to the RMUsedService for architectural clarity.
+        """
+        return self.rm_used_service.get_all_used_coils_df()
+    def get_all_assigned_coils_df(self) -> pd.DataFrame:
+        """
+        Fetches the entire 'Raw Material Used' sheet to get all assigned coils.
+        This is a delegation to the RMUsedService for architectural clarity.
+        """
+        return self.rm_used_service.get_all_used_coils_df()

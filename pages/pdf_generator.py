@@ -44,24 +44,30 @@ def render_coil_sticker_tab(services: AppServices):
     with col2:
         end_date = st.date_input("End Date", datetime.now(), key="coil_sticker_end_date")
 
+    # Fetch data (cached)
     available_coils_df = get_available_coils(services, start_date, end_date)
 
     if available_coils_df.empty:
         st.warning("No available coils found for the selected date range.")
         return
 
-    available_coils_df["Select"] = False
-    edited_df = st.data_editor(
+    # Render st.dataframe with selection_mode
+    st.dataframe(
         available_coils_df,
-        column_order=["Select", "Coil Number", "available_weight", "grade", "thickness", "width", "coating", "coil_supplier"],
-        disabled=["Coil Number", "available_weight", "grade", "thickness", "width", "coating", "coil_supplier"],
+        on_select="rerun",
+        selection_mode="multi-row",
+        column_order=["Coil Number", "available_weight", "grade", "thickness", "width", "coating", "coil_supplier"],
         hide_index=True,
+        key="coil_sticker_df_selection" # Key for st.dataframe component
     )
-    selected_coils = edited_df[edited_df["Select"]]
+
+    # Retrieve selected rows using the session state of the st.dataframe component
+    selected_indices = st.session_state.coil_sticker_df_selection.selection.rows
+    selected_coils = available_coils_df.iloc[selected_indices] # Use iloc on the original df
 
     if not selected_coils.empty:
         st.write(f"{len(selected_coils)} coil(s) selected.")
-        if st.button("Generate Stickers (PDF)"):
+        if st.button("Generate Stickers (PDF)", key="generate_coil_stickers_pdf"):
             with st.spinner("Generating PDF..."):
                 pdf_output = services.pdf.generate_sticker_pdf(selected_coils)
                 st.download_button(
@@ -96,7 +102,7 @@ def render_slitting_plan_tab(services: AppServices):
         st.markdown("**Slit Details:**")
         st.dataframe(pd.DataFrame(plan_details.get('slit_details', [])))
 
-        if st.button("Generate PDF for this Plan"):
+        if st.button("Generate PDF for this Plan", key="generate_slitting_plan_pdf"):
             with st.spinner("Generating PDF and updating status..."):
                 pdf_output = services.pdf.generate_slitting_plan_pdf(plan_details)
                 success = services.slitting_plan.update_plan_status(selected_plan_id, "In Process")
@@ -136,21 +142,22 @@ def render_delivery_challan_tab(services: AppServices):
             return
 
         df = pd.DataFrame(receipts)
-        df["Select"] = False
         
-        edited_df = st.data_editor(
+        st.dataframe(
             df,
-            column_order=["Select", "WeightReceiptNumber", "Date", "JobCardNumber"],
-            disabled=["WeightReceiptNumber", "Date", "JobCardNumber", "PartyName", "DesignDetailsWithWeightsJSON"],
+            on_select="rerun",
+            selection_mode="multi-row",
+            column_order=["WeightReceiptNumber", "Date", "JobCardNumber"],
             hide_index=True,
-            key="dc_receipt_editor"
+            key="dc_receipt_selection_df"
         )
 
-        selected_receipts = edited_df[edited_df["Select"]]
+        selected_indices = st.session_state.dc_receipt_selection_df.selection.rows
+        selected_receipts = df.iloc[selected_indices]
 
         if not selected_receipts.empty:
             st.write(f"{len(selected_receipts)} receipt(s) selected.")
-            if st.button("Generate Delivery Challan"):
+            if st.button("Generate Delivery Challan", key="generate_delivery_challan_pdf"):
                 
                 # --- Data Transformation Logic ---
                 def _prepare_challan_data(receipts_df):
@@ -266,22 +273,23 @@ def render_job_card_tab(services: AppServices):
     
     # Create a view for the data editor without the JSON column
     display_df = job_cards_df.drop(columns=['designs_json'], errors='ignore')
-    display_df["Select"] = False
 
-    edited_df = st.data_editor(
+    st.dataframe(
         display_df,
-        column_order=["Select", "job_card_number", "party_name", "order_date", "delivery_date"],
-        disabled=["job_card_number", "party_name", "order_date", "delivery_date"],
+        on_select="rerun",
+        selection_mode="multi-row",
+        column_order=["job_card_number", "party_name", "order_date", "delivery_date"],
         hide_index=True,
+        key="job_card_selection_df", # Unique key for this dataframe
     )
 
-    selected_indices = edited_df[edited_df["Select"]].index
+    selected_selection_indices = st.session_state.job_card_selection_df.selection.rows
 
-    if len(selected_indices) > 0:
-        st.write(f"{len(selected_indices)} job card(s) selected.")
-        if st.button("Generate Job Card PDF"):
+    if len(selected_selection_indices) > 0:
+        st.write(f"{len(selected_selection_indices)} job card(s) selected.")
+        if st.button("Generate Job Card PDF", key="generate_job_card_pdf"):
             with st.spinner("Generating PDF..."):
-                selected_job_cards_data = job_cards_df.loc[selected_indices].to_dict('records')
+                selected_job_cards_data = job_cards_df.iloc[selected_selection_indices].to_dict('records')
                 pdf_output = services.pdf.generate_job_card_pdf(selected_job_cards_data)
                 st.download_button(
                     label="Download Job Card PDF",
@@ -289,6 +297,7 @@ def render_job_card_tab(services: AppServices):
                     file_name="job_cards.pdf",
                     mime="application/pdf"
                 )
+
 
 def render_weight_receipt_tab(services: AppServices):
     """Renders the UI for the Weight Receipt tab."""
@@ -311,44 +320,19 @@ def render_weight_receipt_tab(services: AppServices):
             st.info("No Weight Receipts found for the selected party and date range.")
             return
 
-        receipt_options = {r['WeightReceiptNumber']: r for r in receipts}
-        selected_receipt_number = st.selectbox(
-            "Select Weight Receipt to Print", 
-            options=[""] + list(receipt_options.keys())
+        df = pd.DataFrame(receipts)
+        
+        st.dataframe(
+            df,
+            on_select="rerun",
+            selection_mode="multi-row",
+            column_order=["WeightReceiptNumber", "Date", "JobCardNumber"],
+            hide_index=True,
+            key="wr_receipt_selection_df"
         )
 
-        if selected_receipt_number:
-            selected_receipt = receipt_options[selected_receipt_number]
-            
-            st.markdown(f"**Receipt Number:** {selected_receipt.get('WeightReceiptNumber')}")
-            st.markdown(f"**Date:** {selected_receipt.get('Date')}")
-            st.markdown(f"**Job Card No:** {selected_receipt.get('JobCardNumber')}")
-
-            is_core_building = selected_receipt.get('WeightEntryType') == 'Building Core'
-            
-            if is_core_building:
-                st.markdown(f"**Weight Entry Type:** Building Core")
-                st.markdown(f"**Total Weight:** {float(selected_receipt.get('TotalWeight', 0.0) or 0.0):.2f} kg")
-
-            designs = json.loads(selected_receipt.get('DesignDetailsWithWeightsJSON', '[]'))
-            st.markdown("**Designs:**")
-            
-            df = pd.DataFrame(designs)
-            if is_core_building:
-                # For core building, actual_weight is not relevant per design
-                st.dataframe(df.drop(columns=['actual_weight'], errors='ignore'))
-            else:
-                st.dataframe(df)
-
-            if st.button("Generate PDF for this Weight Receipt"):
-                with st.spinner("Generating PDF..."):
-                    pdf_output = services.pdf.generate_weight_receipt_pdf(selected_receipt)
-                    st.download_button(
-                        label="Download PDF",
-                        data=pdf_output,
-                        file_name=f"{selected_receipt_number}.pdf",
-                        mime="application/pdf"
-                    )
+        selected_indices = st.session_state.wr_receipt_selection_df.selection.rows
+        selected_receipts = df.iloc[selected_indices]
 
 def render_pdf_generator_page():
     """Renders the main PDF Generator page with tabs."""
