@@ -427,13 +427,13 @@ def load_dropdowns(_service: SalesOrderService):
 
 def render_sales_order_form() -> None:
     """Renders the main Sales Order entry form."""
-    if st.session_state.get('clear_cache_for_data_entry'):
-        st.session_state['clear_cache_for_data_entry'] = False
-        try:
-            load_dropdowns.clear()
-            st.toast("Sales Order cache cleared!")
-        except NameError:
-            pass
+    # if st.session_state.get('clear_cache_for_data_entry'):
+    #     st.session_state['clear_cache_for_data_entry'] = False
+    #     try:
+    #         load_dropdowns.clear()
+    #         st.toast("Sales Order cache cleared!")
+    #     except NameError:
+    #         pass
 
     services = create_services()
     initialize_session_state()

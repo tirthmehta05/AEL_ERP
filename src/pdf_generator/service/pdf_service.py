@@ -20,9 +20,9 @@ class PDFService:
     def get_sales_orders_for_job_card(self, start_date=None, end_date=None):
         return self.sales_order_service.get_sales_orders_for_job_card(start_date, end_date, include_designs=True)
 
-    def get_available_coils_for_sticker(self) -> pd.DataFrame:
-        """Fetches available coils and prepares them for sticker printing display."""
-        return self.slitting_service.get_available_coils()
+    def get_available_coils_for_sticker(self, start_date=None, end_date=None) -> pd.DataFrame:
+        """Fetches date-filtered available coils and prepares them for sticker printing display."""
+        return self.slitting_service.get_available_coils_by_date(start_date=start_date, end_date=end_date)
 
     def _draw_sticker(self, pdf: FPDF, x: float, y: float, coil: pd.Series):
         """Draws a single sticker at the specified (x, y) coordinates."""

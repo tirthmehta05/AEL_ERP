@@ -13,8 +13,37 @@ class SlittingPlanRepository:
         self.google_service = google_drive_service
         self.spreadsheet_id = settings.api.google_sheets_id
 
-    def fetch_inward_data(self) -> pd.DataFrame:
-        return self.google_service.get_worksheet_data(self.spreadsheet_id, "RM inward_Issue format", header_row=3)
+    def fetch_inward_data(self, start_date=None, end_date=None) -> pd.DataFrame:
+        df = self.google_service.get_worksheet_data(self.spreadsheet_id, "RM inward_Issue format", header_row=3)
+        if df.empty or (start_date is None and end_date is None):
+            return df
+        
+        try:
+            # The date column from the sheet is 'RM Receipt Date'
+            date_col = "RM Receipt Date"
+            if date_col not in df.columns:
+                logger.warning(f"Date column '{date_col}' not found in 'RM inward_Issue format' sheet. Returning unfiltered data.")
+                return df
+
+            df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
+            
+            # Drop rows where date conversion failed
+            original_count = len(df)
+            df.dropna(subset=[date_col], inplace=True)
+            if len(df) < original_count:
+                logger.warning(f"Dropped {original_count - len(df)} rows with invalid dates from inward data.")
+
+            # Filter by date range if provided
+            if start_date:
+                df = df[df[date_col].dt.date >= start_date]
+            if end_date:
+                df = df[df[date_col].dt.date <= end_date]
+        except Exception as e:
+            logger.error(f"Error filtering inward data by date: {e}. Returning unfiltered data.")
+            # To be safe, re-fetch or return the original unfiltered df if something went wrong
+            return self.google_service.get_worksheet_data(self.spreadsheet_id, "RM inward_Issue format", header_row=3)
+        
+        return df
 
     def fetch_used_data(self) -> pd.DataFrame:
         return self.google_service.get_worksheet_data(self.spreadsheet_id, "Raw Material Used", header_row=2)

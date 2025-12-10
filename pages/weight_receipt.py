@@ -6,14 +6,21 @@ import time
 from src.services import create_services, SalesOrderService
 from src.data_entry.models.weight_receipt_models import WeightReceiptRequest, WeighedDesignDetail
 
+
+@st.cache_resource(ttl=600)
+def load_so_dropdowns(_service: SalesOrderService):
+    return _service.get_dropdown_data()
+
+
+@st.cache_data
+def get_cached_job_cards(_service, party, start, end):
+    return _service.get_job_cards_for_party_and_date_range(party, start, end)
+
+
 def render_weight_receipt_form():
     st.markdown("<h3>Create Weight Receipt</h3>", unsafe_allow_html=True)
 
     services = create_services()
-
-    @st.cache_resource(ttl=600)
-    def load_so_dropdowns(_service: SalesOrderService):
-        return _service.get_dropdown_data()
 
     dropdown_data = load_so_dropdowns(services.sales_order)
     party_names = dropdown_data.party_names
@@ -26,10 +33,6 @@ def render_weight_receipt_form():
         start_date = st.date_input("Start Date", datetime.now() - timedelta(days=30))
     with col3:
         end_date = st.date_input("End Date", datetime.now())
-
-    @st.cache_data
-    def get_cached_job_cards(_service, party, start, end):
-        return _service.get_job_cards_for_party_and_date_range(party, start, end)
 
     if selected_party:
         job_cards = get_cached_job_cards(services.sales_order, selected_party, start_date, end_date)

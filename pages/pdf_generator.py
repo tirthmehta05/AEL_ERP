@@ -7,9 +7,9 @@ from datetime import datetime, timedelta
 # --- Top-level Cached Functions ---
 
 @st.cache_data
-def get_available_coils(_services: AppServices):
+def get_available_coils(_services: AppServices, start, end):
     """Cached function to fetch available coils."""
-    return _services.pdf.get_available_coils_for_sticker()
+    return _services.pdf.get_available_coils_for_sticker(start_date=start, end_date=end)
 
 @st.cache_data
 def get_printable_plans(_services: AppServices):
@@ -37,10 +37,17 @@ def render_coil_sticker_tab(services: AppServices):
     """Renders the UI for the Coil Sticker tab."""
     st.header("Coil Sticker Generation")
 
-    available_coils_df = get_available_coils(services)
+    # Date range filter
+    col1, col2 = st.columns(2)
+    with col1:
+        start_date = st.date_input("Start Date", datetime.now() - timedelta(days=30), key="coil_sticker_start_date")
+    with col2:
+        end_date = st.date_input("End Date", datetime.now(), key="coil_sticker_end_date")
+
+    available_coils_df = get_available_coils(services, start_date, end_date)
 
     if available_coils_df.empty:
-        st.warning("No available coils found.")
+        st.warning("No available coils found for the selected date range.")
         return
 
     available_coils_df["Select"] = False
