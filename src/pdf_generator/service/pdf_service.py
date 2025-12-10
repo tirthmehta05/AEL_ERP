@@ -23,12 +23,12 @@ class PDFService:
         return self.slitting_service.get_available_coils_by_date(start_date=start_date, end_date=end_date)
 
     def _draw_sticker(self, pdf: FPDF, x: float, y: float, coil: pd.Series):
-        """Draws a single sticker at the specified (x, y) coordinates."""
-        sticker_width = 95
-        sticker_height = 44.5  # Reduced height for 12 stickers per page
-        margin = 2 # Reduced margin to create more space
+        """Draws a single sticker's content at the specified (x, y) coordinates."""
+        sticker_width = 100.01 # Actual printable width from label spec
+        sticker_height = 44.45 # Actual printable height from label spec
+        margin = 2 # Internal margin within the sticker
 
-        pdf.rect(x, y, sticker_width, sticker_height)
+        pdf.rect(x, y, sticker_width, sticker_height) # Re-added border per user request
         
         # 1. Company Name
         pdf.set_xy(x + margin, y + 1)
@@ -38,12 +38,11 @@ class PDFService:
         # 2. Coil Number (Larger Font)
         pdf.set_xy(x + margin, y + 6)
         pdf.set_font("Helvetica", 'B', 18)
-        # Use multi_cell to allow wrapping for longer coil numbers, preventing truncation
         pdf.multi_cell(sticker_width - 2 * margin, 8, f"{coil['Coil Number']}", align='C')
 
         # 3. Other Details (Original Font Size)
         qr_size = 22 # Kept original QR size
-        pdf.set_xy(x + margin, y + 16) # Adjusted Y position
+        pdf.set_xy(x + margin, y + 16)
         pdf.set_font("Helvetica", '', 9)
         details_text = (
             f"Weight: {coil['available_weight']:.2f} kg\n"
@@ -53,12 +52,11 @@ class PDFService:
             f"Coating: {coil['coating']}\n"
             f"Supplier: {coil['coil_supplier']}"
         )
-        # Reduced line height from 4 to 3.8 to fit
         pdf.multi_cell(sticker_width - qr_size - (2 * margin), 3.8, details_text)
 
         # 4. QR Code (Original Data)
         qr_x = x + sticker_width - qr_size - margin
-        qr_y = y + sticker_height - qr_size - margin # Positioned at the bottom right
+        qr_y = y + sticker_height - qr_size - margin
         
         qr_data = (
             f"Coil Number: {coil['Coil Number']}\n"
@@ -69,7 +67,6 @@ class PDFService:
             f"Coating: {coil['coating']}\n"
             f"Supplier: {coil['coil_supplier']}"
         )
-        # Using original box_size=3
         qr = qrcode.QRCode(version=1, box_size=3, border=2)
         qr.add_data(qr_data)
         qr.make(fit=True)
@@ -85,23 +82,31 @@ class PDFService:
         """Generates a PDF with a 2x6 grid of stickers."""
         pdf = FPDF(orientation='P', unit='mm', format='A4')
         pdf.add_page()
+        pdf.set_auto_page_break(auto=False) # Disable auto page break
 
-        margin_horiz = 10
-        margin_vert = 10
-        sticker_width = 95
-        sticker_height = 44.5 # Reduced height for 12 stickers
 
+        # Definitive layout specifications from user
+        sticker_actual_width = 99.8
+        sticker_actual_height = 44.15
+        margin_horiz = 4.825  # Left Margin
+        margin_vert = 7.65   # Top Margin
+        gap_horiz = 2        # Horizontal Gap
+        gap_vert = 3         # Vertical Gap
+        
+        num_cols = 2
+        
         sticker_count = 0
         for _, coil in selected_coils.iterrows():
-            if sticker_count >= 12: # Changed to 12 for a 2x6 grid
+            if sticker_count >= 12: # New page after 12 stickers
                 pdf.add_page()
                 sticker_count = 0
 
-            col = sticker_count % 2
-            row = sticker_count // 2
+            col = sticker_count % num_cols
+            row = sticker_count // num_cols
 
-            x = margin_horiz + (col * sticker_width)
-            y = margin_vert + (row * sticker_height)
+            # Calculate x and y positions using definitive specs
+            x = margin_horiz + (col * (sticker_actual_width + gap_horiz))
+            y = margin_vert + (row * (sticker_actual_height + gap_vert))
 
             self._draw_sticker(pdf, x, y, coil)
             sticker_count += 1
