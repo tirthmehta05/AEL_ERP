@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from datetime import date
-from typing import List
+from typing import List, Optional
 
 class RMUsedRequest(BaseModel):
     rm_used_date: date
@@ -9,6 +9,7 @@ class RMUsedRequest(BaseModel):
     weight: float
     machine: str
     remarks: str
+    no_of_boxes: Optional[int] = Field(default=0)
 
 class RMUsedRecord(BaseModel):
     rm_used_date: date
@@ -17,6 +18,7 @@ class RMUsedRecord(BaseModel):
     weight: float
     machine: str
     remarks: str
+    no_of_boxes: int
 
     def to_list(self) -> list:
         """Convert to list format for Google Sheets"""
@@ -27,8 +29,7 @@ class RMUsedRecord(BaseModel):
             self.weight,
             self.machine,
             self.remarks,
-            self.rm_used_date.strftime("%m/%d/%Y"),
-            self.coil_no,
+            self.no_of_boxes,
         ]
 
 class DropdownData(BaseModel):

@@ -191,8 +191,8 @@ class RMUsedService:
             # Convert to list format for Google Sheets
             data_row = record.to_list()
 
-            # Append to the Raw Material Used sheet
-            success = self.google_service.append_data(
+            # Insert the new row before the last row to avoid overwriting formulas
+            success = self.google_service.insert_row_before_last(
                 self.spreadsheet_id, "Raw Material Used", [data_row]
             )
 
