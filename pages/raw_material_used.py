@@ -23,6 +23,7 @@ def render_raw_material_used_form() -> None:
         st.session_state.weight = ""
         st.session_state.machine = None
         st.session_state.remarks = None
+        st.session_state.no_of_boxes = 0 # Clear new field
         st.session_state.available_weight = 0.0
         st.session_state.form_submitted_successfully = False
 
@@ -35,7 +36,7 @@ def render_raw_material_used_form() -> None:
     st.markdown("<div class='card-header'>Raw Material Used Form</div>", unsafe_allow_html=True)
 
     with st.form("raw_material_used_form", clear_on_submit=False):
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3) # Changed to 3 columns
         with col1:
             st.date_input("Date", key="rm_used_date")
             st.selectbox("Card No", options=dropdowns.job_cards, index=None, placeholder="Select a Job Card", key="card_no")
@@ -45,6 +46,9 @@ def render_raw_material_used_form() -> None:
             st.text_input("Weight", key="weight")
             st.selectbox("Machine", options=dropdowns.machines, index=None, placeholder="Select or type a Machine", accept_new_options=True, key="machine")
             st.selectbox("Remarks", options=dropdowns.remarks, index=None, placeholder="Select or type a Remark", accept_new_options=True, key="remarks")
+        
+        with col3:
+            st.number_input("No Of Boxes (Optional)", min_value=0, step=1, key="no_of_boxes")
 
         if st.session_state.coil_no:
             st.session_state.available_weight = data_service.get_available_weight(st.session_state.coil_no)
@@ -62,8 +66,10 @@ def render_raw_material_used_form() -> None:
                 "Coil No": st.session_state.coil_no, 
                 "Weight": st.session_state.weight, 
                 "Machine": st.session_state.machine, 
-                "Remarks": st.session_state.remarks
             }
+            # Remarks is now optional as per the new structure which includes "Remarks/ Customer Name"
+            # No Of Boxes is also optional
+
             for field_name, value in required_fields.items():
                 if not value:
                     errors.append(f"Please select or enter a value for '{field_name}'.")
@@ -92,6 +98,7 @@ def render_raw_material_used_form() -> None:
                         "weight": weight_float,
                         "machine": st.session_state.machine,
                         "remarks": st.session_state.remarks or "",
+                        "no_of_boxes": st.session_state.no_of_boxes or 0,
                     }
                     with st.spinner("Processing your request..."):
                         request_obj = RMUsedRequest(**request_data)
