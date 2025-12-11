@@ -203,7 +203,7 @@ class SalesOrderService:
                 sales_order_rows.append([
                     request.job_card_number, request.order_date.strftime("%m/%d/%Y"), request.po_no,
                     design.party_job_no, request.party_name, design.width, design.length, design.mm_stack,
-                    design.mm_stack, request.hole_size, None, design.sets, design.sets, design.type,
+                    design.pcs, request.hole_size, design.hole, design.sets, design.weight, design.type,
                     design.thk, request.rate_per_kg, request.delivery_date.strftime("%m/%d/%Y"), design.fm_name
                 ])
             
