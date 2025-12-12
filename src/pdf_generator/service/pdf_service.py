@@ -615,11 +615,10 @@ class PDFService:
 
         return bytes(pdf.output(dest='S'))
 
-    def generate_weight_receipt_pdf(self, receipt_data: dict) -> bytes:
-        """Generates a Weight Receipt PDF from a structured dictionary."""
-        pdf = FPDF(orientation='P', unit='mm', format='A4')
+    def _draw_weight_receipt(self, pdf: FPDF, receipt_data: dict):
+        """Draws a single Weight Receipt on the current PDF page."""
         pdf.add_page()
-        pdf.set_auto_page_break(auto=True, margin=15)
+        pdf.set_auto_page_break(auto=True, margin=15) # Re-enable auto page break for multi-page documents
         
         # Title
         pdf.set_font("Helvetica", 'B', 18)
@@ -766,4 +765,9 @@ class PDFService:
         pdf.set_font("Helvetica", 'B', 12)
         pdf.cell(0, 10, party_name, ln=True, align='L')
         
+    def generate_weight_receipt_pdf(self, selected_receipts: List[dict]) -> bytes:
+        """Generates a PDF for the selected weight receipts."""
+        pdf = FPDF(orientation='P', unit='mm', format='A4')
+        for receipt_data in selected_receipts:
+            self._draw_weight_receipt(pdf, receipt_data)
         return bytes(pdf.output(dest='S'))

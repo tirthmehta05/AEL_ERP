@@ -334,6 +334,19 @@ def render_weight_receipt_tab(services: AppServices):
         selected_indices = st.session_state.wr_receipt_selection_df.selection.rows
         selected_receipts = df.iloc[selected_indices]
 
+        if not selected_receipts.empty:
+            st.write(f"{len(selected_receipts)} receipt(s) selected.")
+            if st.button("Generate Weight Receipt PDF", key="generate_weight_receipt_pdf"):
+                with st.spinner("Generating PDF..."):
+                    selected_receipts_data = selected_receipts.to_dict('records')
+                    pdf_output = services.pdf.generate_weight_receipt_pdf(selected_receipts_data)
+                    st.download_button(
+                        label="Download Weight Receipt PDF",
+                        data=pdf_output,
+                        file_name="weight_receipts.pdf",
+                        mime="application/pdf"
+                    )
+
 def render_pdf_generator_page():
     """Renders the main PDF Generator page with tabs."""
     st.title("📄 PDF Generator")
