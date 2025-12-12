@@ -410,8 +410,12 @@ class PDFService:
 
         pdf.set_font("Helvetica", '', 10)
         job_card_no = job_card_data['job_card_number']
-        assigned_coils_for_card = all_used_coils_df[all_used_coils_df['Card No'] == job_card_no]
-        assigned_coils = assigned_coils_for_card.to_dict('records')
+        
+        assigned_coils = []
+        if not all_used_coils_df.empty and 'Card No' in all_used_coils_df.columns:
+            assigned_coils_for_card = all_used_coils_df[all_used_coils_df['Card No'] == job_card_no]
+            assigned_coils = assigned_coils_for_card.to_dict('records')
+
         if assigned_coils:
             for coil in assigned_coils:
                 pdf.cell(100, 8, str(coil.get('Coil No', 'N/A')), border=1, align='C')

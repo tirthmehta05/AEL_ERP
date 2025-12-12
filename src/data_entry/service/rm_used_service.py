@@ -156,16 +156,6 @@ class RMUsedService:
             return pd.DataFrame()
         return df
 
-    def get_all_used_coils_df(self) -> pd.DataFrame:
-        """
-        Fetches the entire 'Raw Material Used' sheet.
-        Uses internal caching to avoid repeated calls in the same session.
-        """
-        df = self._get_all_dropdown_data()
-        if df is None:
-            return pd.DataFrame()
-        return df
-
     def get_coils_for_job_card(self, job_card_number: str) -> List[dict]:
         """Fetches the coils assigned to a specific job card."""
         try:

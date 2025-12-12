@@ -80,6 +80,9 @@ def initialize_session_state():
     if 'ready_weight' not in st.session_state:
         st.session_state.ready_weight = 0.0
 
+# Define material type options globally for reuse
+material_type_options = ["CR COIL", "CRGO EI", "CRNO", "CRNO COIL", "CRNO EI", "CRNO EI TRD", "CRNO TL"]
+
 def render_header_fields(dropdown_data):
     """Renders the main header fields for the sales order form."""
     st.markdown("<h5>Order Details</h5>", unsafe_allow_html=True)
@@ -96,7 +99,7 @@ def render_header_fields(dropdown_data):
         hole_size_options = dropdown_data.hole_sizes
         default_index = hole_size_options.index(default_hole_size) if default_hole_size in hole_size_options else 0
         st.selectbox("Hole Size (mm)", options=hole_size_options, index=default_index, key="so_hole_size")
-        st.selectbox("Type", options=["CRNO", "CRNGO"], key="so_type")
+        st.selectbox("Type", options=material_type_options, key="so_type", accept_new_options=True)
     with col3:
         st.number_input("Number of Cores", min_value=1, step=1, key="so_num_cores")
         st.number_input("Header Core Stack (mm)", min_value=0.0, step=1.0, format="%.1f", key="so_header_core_stack")
@@ -269,7 +272,7 @@ def render_ready_design_entry_fields():
         st.number_input("Weight (kg)", min_value=0.0, step=1.0, format="%.2f", key="ready_weight")
 
     with col4:
-        st.selectbox("Type", options=["CRNO", "CRGO"], key="ready_type")
+        st.selectbox("Type", options=material_type_options, key="ready_type", accept_new_options=True)
 
     if st.button("Add Ready Design to Order"):
         add_ready_design_to_state(width, length)
@@ -368,7 +371,9 @@ def render_full_coil_sale_form(service: SalesOrderService, dropdown_data):
         st.date_input("Order Entry Date", key="fcs_order_date")
         st.text_input("PO No. (Optional)", key="fcs_po_no")
         st.selectbox("Party Name", options=dropdown_data.party_names, index=None, placeholder="Select a Party", key="fcs_party_name", accept_new_options=True)
-        st.selectbox("Material Type", options=rm_inward_dropdowns.rm_types, index=None, placeholder="Select or type a Material Type", key="fcs_material_type", accept_new_options=True)
+        
+        material_type_options = ["CR COIL", "CRGO EI", "CRNO", "CRNO COIL", "CRNO EI", "CRNO EI TRD", "CRNO TL"]
+        st.selectbox("Material Type", options=material_type_options, index=None, placeholder="Select or type a Material Type", key="fcs_material_type", accept_new_options=True)
 
     with col2:
         st.selectbox("Width (mm)", options=rm_inward_dropdowns.widths, index=None, placeholder="Select or type a Width", key="fcs_width", accept_new_options=True)
