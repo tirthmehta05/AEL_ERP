@@ -25,8 +25,15 @@ class SalesOrderService:
         self.pa_tenant_id = pa_tenant_id
 
     def generate_job_card_number(self, type: str) -> str:
-        """Generates a new unique Job Card number based on the type (CRNO/CRNGO)."""
-        prefix = "N-" if type == "CRNO" else "G-"
+        """Generates a new unique Job Card number based on the material type."""
+        if "CRNO" in type:
+            prefix = "N-"
+        elif "CRGO" in type:
+            prefix = "RG-"
+        elif "CR" in type:
+            prefix = "RM-"
+        else:
+            prefix = "G-"  # Fallback for unknown types
         start_number = 6160
 
         try:
