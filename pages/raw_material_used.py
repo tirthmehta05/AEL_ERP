@@ -13,9 +13,10 @@ def load_dropdowns(_service: RMUsedService):
 
 
 def render_raw_material_used_form() -> None:
-    """Renders the Raw Material Used form"""
+    """Renders the Raw Material Used form with interactive coil selection."""
     data_service = RMUsedService()
 
+    # This block resets the form fields upon successful submission
     if st.session_state.get("form_submitted_successfully", False):
         st.session_state.rm_used_date = datetime.now().date()
         st.session_state.card_no = ""
@@ -23,7 +24,7 @@ def render_raw_material_used_form() -> None:
         st.session_state.weight = ""
         st.session_state.machine = None
         st.session_state.remarks = None
-        st.session_state.no_of_boxes = 0 # Clear new field
+        st.session_state.no_of_boxes = 0
         st.session_state.available_weight = 0.0
         st.session_state.form_submitted_successfully = False
 
@@ -34,25 +35,38 @@ def render_raw_material_used_form() -> None:
 
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown("<div class='card-header'>Raw Material Used Form</div>", unsafe_allow_html=True)
+    st.markdown("<div class='card-body'>", unsafe_allow_html=True) # Added for better spacing
 
+    # --- Step 1: Interactive Coil Selection (Outside the form) ---
+    st.selectbox(
+        "Coil No",
+        options=dropdowns.coil_nos,
+        index=None,
+        placeholder="Select a Coil No to see available weight",
+        key="coil_no"
+    )
+
+    # --- Step 2: Display Available Weight (Outside the form) ---
+    if st.session_state.coil_no:
+        st.session_state.available_weight = data_service.get_available_weight(st.session_state.coil_no)
+        st.info(f"Available weight for coil **{st.session_state.coil_no}**: **{st.session_state.available_weight:.2f} kg**")
+    
+    # --- Step 3: The rest of the form for data entry ---
     with st.form("raw_material_used_form", clear_on_submit=False):
-        col1, col2, col3 = st.columns(3) # Changed to 3 columns
+        
+        # Displaying the selected coil number inside the form for context, but disabled
+        st.text_input("Selected Coil No", value=st.session_state.get("coil_no", ""), disabled=True)
+        
+        col1, col2 = st.columns(2)
         with col1:
             st.date_input("Date", key="rm_used_date")
             st.selectbox("Card No", options=dropdowns.job_cards, index=None, placeholder="Select a Job Card", key="card_no")
-            st.selectbox("Coil No", options=dropdowns.coil_nos, index=None, placeholder="Select a Coil No", key="coil_no")
+            st.number_input("Weight to Use", min_value=0.0, step=1.0, format="%.2f", key="weight")
 
         with col2:
-            st.text_input("Weight", key="weight")
-            st.selectbox("Machine", options=dropdowns.machines, index=None, placeholder="Select or type a Machine", accept_new_options=True, key="machine")
-            st.selectbox("Remarks", options=dropdowns.remarks, index=None, placeholder="Select or type a Remark", accept_new_options=True, key="remarks")
-        
-        with col3:
+            st.selectbox("Machine", options=dropdowns.machines, index=None, placeholder="Select or type a Machine", key="machine", help="The machine where the material was used.", accept_new_options=True)
+            st.selectbox("Remarks", options=dropdowns.remarks, index=None, placeholder="Select or type a Remark", key="remarks", help="Any remarks or customer name.", accept_new_options=True)
             st.number_input("No Of Boxes (Optional)", min_value=0, step=1, key="no_of_boxes")
-
-        if st.session_state.coil_no:
-            st.session_state.available_weight = data_service.get_available_weight(st.session_state.coil_no)
-            st.info(f"Available weight for coil {st.session_state.coil_no}: {st.session_state.available_weight:.2f} kg")
 
         submitted = st.form_submit_button("Submit Used Entry")
         
@@ -61,31 +75,32 @@ def render_raw_material_used_form() -> None:
             if st.session_state.rm_used_date > datetime.now().date():
                 errors.append("Date cannot be in the future.")
 
+            # Required fields validation (Coil No is checked separately)
             required_fields = {
                 "Card No": st.session_state.card_no, 
-                "Coil No": st.session_state.coil_no, 
-                "Weight": st.session_state.weight, 
+                "Weight to Use": st.session_state.weight, 
                 "Machine": st.session_state.machine, 
             }
-            # Remarks is now optional as per the new structure which includes "Remarks/ Customer Name"
-            # No Of Boxes is also optional
+            if not st.session_state.coil_no:
+                errors.append("Please select a 'Coil No' before submitting.")
 
             for field_name, value in required_fields.items():
                 if not value:
-                    errors.append(f"Please select or enter a value for '{field_name}'.")
-
+                    errors.append(f"Please enter a value for '{field_name}'.")
+            
+            # Weight validation
             weight_float = 0.0
             try:
-                if st.session_state.weight:
-                    weight_float = float(st.session_state.weight)
-                    if weight_float <= 0:
-                        errors.append("Weight must be a positive number.")
+                weight_float = float(st.session_state.weight)
+                if weight_float <= 0:
+                    errors.append("'Weight to Use' must be a positive number.")
             except (ValueError, TypeError):
-                errors.append("Weight must be a valid number.")
+                errors.append("'Weight to Use' must be a valid number.")
 
+            # Available weight check
             if not errors and st.session_state.coil_no:
                 if weight_float > st.session_state.available_weight:
-                    errors.append(f"Entered weight ({weight_float} kg) exceeds available weight ({st.session_state.available_weight:.2f} kg) for coil {st.session_state.coil_no}.")
+                    errors.append(f"Entered weight ({weight_float:.2f} kg) exceeds available weight ({st.session_state.available_weight:.2f} kg).")
 
             if errors:
                 st.warning("Please correct the following errors:\n\n" + "\n".join([f"- {e}" for e in errors]))
@@ -117,7 +132,9 @@ def render_raw_material_used_form() -> None:
                     st.error("Data validation failed:\n" + "\n".join(error_msgs))
                 except Exception as e:
                     st.error(f"An unexpected error occurred: {e}")
-    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("</div>", unsafe_allow_html=True) # Close card-body
+    st.markdown("</div>", unsafe_allow_html=True) # Close card
 
 if __name__ == "__main__":
     render_raw_material_used_form()

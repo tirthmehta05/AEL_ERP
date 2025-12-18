@@ -21,18 +21,18 @@ class RMUsedService:
         self._dropdown_df: Optional[pd.DataFrame] = None
         self._inward_df: Optional[pd.DataFrame] = None
 
-    def _get_all_dropdown_data(self) -> Optional[pd.DataFrame]:
+    def _get_used_data(self) -> Optional[pd.DataFrame]:
         """
-        Loads all required dropdown data from the main
-        'Raw Material Used' sheet into a DataFrame.
+        Loads and caches data from the 'Raw Material Used' sheet.
         """
         if self._dropdown_df is None:
             try:
+                # The header for this sheet is on the third row.
                 self._dropdown_df = self.google_service.get_worksheet_data(
-                    self.spreadsheet_id, "Raw Material Used", header_row=2
+                    self.spreadsheet_id, "Raw Material Used", header_row=3
                 )
             except Exception as e:
-                logger.error(f"Error loading dropdown data: {str(e)}")
+                logger.error(f"Error loading 'Raw Material Used' data: {str(e)}")
                 self._dropdown_df = pd.DataFrame()
         return self._dropdown_df
 
@@ -61,12 +61,13 @@ class RMUsedService:
         return sorted([str(option) for option in options if str(option).strip()])
 
     def get_dropdown_data(self) -> DropdownData:
-        """Get all dropdown data from the main Raw Material Used sheet"""
+        """
+        Get all dropdown data. The coil numbers are filtered to only include
+        coils with a positive available weight.
+        """
         try:
             if not self.google_service.client:
-                logger.warning(
-                    "Google Drive client not initialized. Using empty dropdown data."
-                )
+                logger.warning("Google Drive client not initialized. Using empty dropdown data.")
                 return DropdownData()
 
             # Test connection once
@@ -74,20 +75,48 @@ class RMUsedService:
                 logger.error(f"Cannot connect to spreadsheet: {self.spreadsheet_id}")
                 return DropdownData()
 
-            # Load data from all sheets
-            used_df = self._get_all_dropdown_data()
+            used_df = self._get_used_data()
             inward_df = self._get_inward_data()
-            sales_order_df = self.google_service.get_worksheet_data(
-                self.spreadsheet_id, "Sales Order", header_row=1
-            )
+            sales_order_df = self.google_service.get_worksheet_data(self.spreadsheet_id, "Sales Order", header_row=1)
 
             job_cards = self._get_options_from_dataframe(sales_order_df, "Job Card")
             if "Stock" not in job_cards:
                 job_cards.insert(0, "Stock")
 
+            # --- Efficiently calculate available coils ---
+            available_coils = []
+            if inward_df is not None and not inward_df.empty:
+                # Ensure weight columns are numeric, coercing errors
+                inward_df['Coil Weight'] = pd.to_numeric(inward_df['Coil Weight'], errors='coerce')
+                
+                # Group by coil to get total inward weight
+                inward_totals = inward_df.groupby('Coil Number')['Coil Weight'].sum().reset_index()
+                
+                # Group by coil to get total used weight
+                used_totals = pd.DataFrame({'Coil No': [], 'Weight': []})
+                if used_df is not None and not used_df.empty and 'Coil No' in used_df.columns:
+                    used_df['Weight'] = pd.to_numeric(used_df['Weight'], errors='coerce')
+                    used_totals = used_df.groupby('Coil No')['Weight'].sum().reset_index()
+
+                # Merge inward and used dataframes
+                if not used_totals.empty:
+                    merged_df = pd.merge(inward_totals, used_totals, left_on='Coil Number', right_on='Coil No', how='left')
+                else:
+                    merged_df = inward_totals
+                    merged_df['Weight'] = 0 # Add empty Weight column if no coils have been used
+
+                # Calculate available weight
+                merged_df['Weight'] = merged_df['Weight'].fillna(0)
+                merged_df['available_weight'] = merged_df['Coil Weight'] - merged_df['Weight']
+                
+                # Filter for coils with positive available weight
+                available_coils_df = merged_df[merged_df['available_weight'] > 0]
+                available_coils = sorted(available_coils_df['Coil Number'].dropna().unique().tolist())
+            # --- End of new logic ---
+
             dropdown_data = DropdownData(
                 job_cards=job_cards,
-                coil_nos=self._get_options_from_dataframe(inward_df, "Coil Number"),
+                coil_nos=available_coils,  # Use the new filtered list
                 machines=self._get_options_from_dataframe(used_df, "Machine"),
                 remarks=self._get_options_from_dataframe(used_df, "Remarks"),
             )
@@ -101,7 +130,7 @@ class RMUsedService:
         """Calculate the available weight for a given coil number."""
         try:
             inward_df = self._get_inward_data()
-            used_df = self._get_all_dropdown_data()
+            used_df = self._get_used_data()
 
             if inward_df is None or inward_df.empty:
                 return 0.0
@@ -151,7 +180,7 @@ class RMUsedService:
         Fetches the entire 'Raw Material Used' sheet.
         Uses internal caching to avoid repeated calls in the same session.
         """
-        df = self._get_all_dropdown_data()
+        df = self._get_used_data()
         if df is None:
             return pd.DataFrame()
         return df
@@ -159,7 +188,7 @@ class RMUsedService:
     def get_coils_for_job_card(self, job_card_number: str) -> List[dict]:
         """Fetches the coils assigned to a specific job card."""
         try:
-            df = self.google_service.get_worksheet_data(self.spreadsheet_id, "Raw Material Used", header_row=2)
+            df = self.google_service.get_worksheet_data(self.spreadsheet_id, "Raw Material Used", header_row=3)
             if df.empty or 'Card No' not in df.columns:
                 return []
 
