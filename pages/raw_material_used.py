@@ -21,7 +21,7 @@ def render_raw_material_used_form() -> None:
         st.session_state.rm_used_date = datetime.now().date()
         st.session_state.card_no = ""
         st.session_state.coil_no = None
-        st.session_state.weight = ""
+        st.session_state.weight = 0.0
         st.session_state.machine = None
         st.session_state.remarks = None
         st.session_state.no_of_boxes = 0
@@ -99,7 +99,8 @@ def render_raw_material_used_form() -> None:
 
             # Available weight check
             if not errors and st.session_state.coil_no:
-                if weight_float > st.session_state.available_weight:
+                # Round to 2 decimal places to avoid floating point precision issues
+                if round(weight_float, 2) > round(st.session_state.available_weight, 2):
                     errors.append(f"Entered weight ({weight_float:.2f} kg) exceeds available weight ({st.session_state.available_weight:.2f} kg).")
 
             if errors:
