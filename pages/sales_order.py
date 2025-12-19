@@ -123,7 +123,22 @@ def render_design_entry_fields():
         st.number_input("Thickness (mm)", min_value=0.0, step=0.01, format="%.2f", key="design_thk")
         st.number_input("Weight (kg)", min_value=0.0, step=1.0, format="%.2f", key="design_weight", disabled=not is_loose)
     with col4:
-        st.text_input("Remark (Optional)", key="design_remark")
+        is_loose = st.session_state.design_is_loose
+
+        if is_loose:
+            # Set the session state. The widget will pick this up via its key.
+            st.session_state.design_remark = "Loose"
+        elif st.session_state.get("design_remark") == "Loose":
+            # If the box was just unchecked, clear the auto-filled value.
+            st.session_state.design_remark = ""
+
+        # The widget's value is now determined *only* by st.session_state.design_remark.
+        # The `disabled` parameter is determined by the checkbox state.
+        st.text_input(
+            "Remark (Optional)",
+            key="design_remark",
+            disabled=is_loose
+        )
         st.number_input("Stack (mm)", min_value=0.0, step=1.0, format="%.1f", key="design_mm_stack", disabled=is_loose)
 
     # Live Calculation Display
