@@ -16,6 +16,21 @@ import pandas as pd
 logger = setup_logger(__name__)
 
 class SalesOrderService:
+    MATERIAL_TYPE_PREFIX_MAP = {
+        "CR COIL": "RM-",
+        "CRGO EI": "RG-",
+        "CRNO EI": "RN-",
+        "CRNO EI TRD": "RN-",
+        "CRNO TL": "N-",
+        "CRGO TL": "G-",
+    }
+    DEFAULT_PREFIX = "RM-" # Fallback as per user's request
+
+    def _get_prefix_from_material_type(self, material_type: str) -> str:
+        """Helper to get the job card prefix based on material type."""
+        normalized_type = material_type.strip().upper()
+        return self.MATERIAL_TYPE_PREFIX_MAP.get(normalized_type, self.DEFAULT_PREFIX)
+
     def __init__(self, pa_client_id: str, pa_client_secret: str, pa_tenant_id: str):
         self.google_service = google_drive_service
         self.spreadsheet_id = settings.api.google_sheets_id
@@ -24,16 +39,9 @@ class SalesOrderService:
         self.pa_client_secret = pa_client_secret
         self.pa_tenant_id = pa_tenant_id
 
-    def generate_job_card_number(self, type: str) -> str:
+    def generate_job_card_number(self, material_type: str) -> str:
         """Generates a new unique Job Card number based on the material type."""
-        if "CRNO" in type:
-            prefix = "N-"
-        elif "CRGO" in type:
-            prefix = "RG-"
-        elif "CR" in type:
-            prefix = "RM-"
-        else:
-            prefix = "G-"  # Fallback for unknown types
+        prefix = self._get_prefix_from_material_type(material_type)
         start_number = 6160
 
         try:
@@ -60,9 +68,9 @@ class SalesOrderService:
             # Fallback to a safe, but different, format to avoid duplicates
             return f"{prefix}{datetime.now().strftime('%y%m%d%H%M%S')}"
 
-    def get_next_ready_card_number(self) -> str:
+    def get_next_ready_card_number(self, material_type: str) -> str:
         """Generates the next sequential 'Ready' card number (e.g., RN-1460)."""
-        prefix = "RN-"
+        prefix = self._get_prefix_from_material_type(material_type)
         start_number = 1460
 
         try:
@@ -94,9 +102,9 @@ class SalesOrderService:
             logger.error(f"Error generating ready card number: {str(e)}")
             return f"{prefix}{datetime.now().strftime('%y%m%d%H%M%S')}"
 
-    def generate_full_coil_sale_job_card_number(self) -> str:
+    def generate_full_coil_sale_job_card_number(self, material_type: str) -> str:
         """Generates a new unique Job Card number for Full Coil Sale, e.g., RM-11."""
-        prefix = "RM-"
+        prefix = self._get_prefix_from_material_type(material_type)
         start_number = 11
         try:
             df = self.google_service.get_worksheet_data(self.spreadsheet_id, "Sales Order", header_row=1)

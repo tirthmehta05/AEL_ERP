@@ -14,22 +14,22 @@ from pages.sales_order_components import render_coil_assignment_fields, render_a
 
 # --- FM Data ---
 FM_DATA = {
-    "T-3": {"width": 55.2, "length": 127},
+    "T-3": {"width": 55.2, "length": 127.0},
     "T-15": {"width": 76.2, "length": 101.6},
     "T-16": {"width": 114.2, "length": 152.4},
     "T-43": {"width": 152.4, "length": 203.2},
-    "T-180": {"width": 180, "length": 240},
+    "T-180": {"width": 180.0, "length": 240.0},
     "T-12": {"width": 47.6, "length": 63.5},
     "T-23": {"width": 57.1, "length": 76.2},
-    "T-30 (P)": {"width": 60, "length": 80},
+    "T-30 (P)": {"width": 60.0, "length": 80.0},
     "T-74": {"width": 53.9, "length": 69.85},
-    "T-30 (H)": {"width": 60, "length": 80},
-    "T-17": {"width": 38, "length": 50.8},
-    "T-8B": {"width": 235, "length": 317.5},
-    "T-6": {"width": 127, "length": 190.5},
-    "T-8": {"width": 184, "length": 292},
+    "T-30 (H)": {"width": 60.0, "length": 80.0},
+    "T-17": {"width": 38.0, "length": 50.8},
+    "T-8B": {"width": 235.0, "length": 317.5},
+    "T-6": {"width": 127.0, "length": 190.5},
+    "T-8": {"width": 184.0, "length": 292.0},
     "T-31": {"width": 66.6, "length": 88.9},
-    "T-33": {"width": 44, "length": 112},
+    "T-33": {"width": 44.0, "length": 112.0},
     "T-41": {"width": 41.2, "length": 53.9},
 }
 
@@ -70,7 +70,7 @@ def initialize_session_state():
                 st.session_state[key] = ""
 
     # New keys for ready entry form
-    ready_keys = ['ready_card_no', 'ready_fm_name', 'ready_type']
+    ready_keys = ['ready_card_no', 'ready_fm_name']
     for key in ready_keys:
         if key not in st.session_state:
             st.session_state[key] = ""
@@ -240,7 +240,7 @@ def add_ready_design_to_state(width, length):
             length=length,
             weight=weight, 
             thk=thk_mm,
-            type=st.session_state.ready_type, 
+            type=st.session_state.so_type, 
             # Set other required fields to sensible defaults for "Ready" type
             mm_stack=None,
             pcs=0,
@@ -264,9 +264,11 @@ def render_ready_design_entry_fields():
     # Fetch the next ready card number if it's not already in the session
     if 'ready_card_no_generated' not in st.session_state:
         services = create_services()
-        st.session_state.ready_card_no_generated = services.sales_order.get_next_ready_card_number()
+        # Ensure so_type is available, default to "CRNO" if not set yet (e.g., first run)
+        material_type_for_ready = st.session_state.so_type if 'so_type' in st.session_state else "CRNO"
+        st.session_state.ready_card_no_generated = services.sales_order.get_next_ready_card_number(material_type_for_ready)
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         st.text_input("Card No.", value=st.session_state.ready_card_no_generated, key="ready_card_no", disabled=True)
@@ -285,9 +287,6 @@ def render_ready_design_entry_fields():
     with col3:
         st.number_input("Thickness (mm)", min_value=0.0, step=0.01, format="%.2f", key="ready_thk")
         st.number_input("Weight (kg)", min_value=0.0, step=1.0, format="%.2f", key="ready_weight")
-
-    with col4:
-        st.selectbox("Type", options=material_type_options, key="ready_type", accept_new_options=True)
 
     if st.button("Add Ready Design to Order"):
         add_ready_design_to_state(width, length)
@@ -378,7 +377,9 @@ def render_full_coil_sale_form(service: SalesOrderService, dropdown_data):
         st.checkbox("Enter Job Card Manually", key="fcs_manual_job_card")
         if not st.session_state.fcs_manual_job_card:
             if 'fcs_job_card_generated' not in st.session_state:
-                st.session_state.fcs_job_card_generated = service.generate_full_coil_sale_job_card_number()
+                # Ensure fcs_material_type is available, default to "CR COIL" if not set yet
+                fcs_material_type = st.session_state.get('fcs_material_type', "CR COIL")
+                st.session_state.fcs_job_card_generated = service.generate_full_coil_sale_job_card_number(fcs_material_type)
             st.text_input("Job Card", value=st.session_state.fcs_job_card_generated, key="fcs_job_card", disabled=True)
         else:
             st.text_input("Job Card", key="fcs_job_card")
