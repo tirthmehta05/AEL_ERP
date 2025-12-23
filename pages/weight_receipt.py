@@ -228,6 +228,7 @@ def render_weight_receipt_form():
                                 if response_data.get("success") and response_data.get("status") == "stable":
                                     st.session_state.wr_total_weight = response_data.get("weight", 0.0)
                                     st.toast(f"Total weight received: {response_data.get('weight', 0.0):.2f} kg")
+                                    st.rerun()
                                 else:
                                     st.warning(f"Could not get stable total weight. Status: {response_data.get('status', 'unknown')}. Please try again.")
                             except Exception as e:
