@@ -53,6 +53,8 @@ def initialize_session_state():
         st.session_state.so_coating = ""
     if 'so_is_ready_entry' not in st.session_state:
         st.session_state.so_is_ready_entry = False
+    if 'so_job_card_material_type' not in st.session_state:
+        st.session_state.so_job_card_material_type = None
 
     # Initialize design keys to prevent errors on first run
     design_keys = ['design_width', 'design_length', 'design_weight', 
@@ -101,6 +103,7 @@ def render_header_fields(dropdown_data):
         st.selectbox("Hole Size (mm)", options=hole_size_options, index=default_index, key="so_hole_size")
         st.selectbox("Type", options=material_type_options, key="so_type", accept_new_options=True)
     with col3:
+        st.text_input("Job Card Number", value=st.session_state.so_job_card_number, disabled=True)
         st.number_input("Number of Cores", min_value=1, step=1, key="so_num_cores")
         st.number_input("Header Core Stack (mm)", min_value=0.0, step=1.0, format="%.1f", key="so_header_core_stack")
         st.text_input("Grade (Optional)", key="so_grade")
@@ -471,6 +474,18 @@ def render_sales_order_form() -> None:
     )
 
     if order_type == "Standard Manufacturing":
+        if st.session_state.get("so_party_name"):
+            current_material_type = st.session_state.so_type
+            previous_material_type = st.session_state.so_job_card_material_type
+            
+            if previous_material_type != current_material_type:
+                try:
+                    new_job_card = services.sales_order.generate_sequential_job_card_number(current_material_type)
+                    st.session_state.so_job_card_number = new_job_card
+                    st.session_state.so_job_card_material_type = current_material_type
+                except Exception as e:
+                    st.error(f"Error generating job card number: {e}")
+
         render_header_fields(dropdown_data)
         
         st.checkbox("Entry Type: Ready", key="so_is_ready_entry")
