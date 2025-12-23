@@ -17,10 +17,21 @@ def get_cached_job_cards(_service, party, start, end):
     return _service.get_job_cards_for_party_and_date_range(party, start, end)
 
 
+def initialize_wr_session_state():
+    if 'wr_weights' not in st.session_state:
+        st.session_state.wr_weights = {}
+    if 'wr_remarks' not in st.session_state:
+        st.session_state.wr_remarks = {}
+    if 'wr_total_weight' not in st.session_state:
+        st.session_state.wr_total_weight = 0.0
+    if 'current_jc_for_wr' not in st.session_state:
+        st.session_state.current_jc_for_wr = None
+
 def render_weight_receipt_form():
     st.markdown("<h3>Create Weight Receipt</h3>", unsafe_allow_html=True)
 
     services = create_services()
+    initialize_wr_session_state() # Call the new initialization function
 
     dropdown_data = load_so_dropdowns(services.sales_order)
     party_names = dropdown_data.party_names
@@ -80,34 +91,74 @@ def render_weight_receipt_form():
             expected_total_weight = sum(float(d.get('weight', 0)) for d in designs)
 
             if weight_entry_type == "Loose Strips":
-                # Prepare dataframe for data_editor
-                df = pd.DataFrame(designs)
-                df['actual_weight'] = 0.0 # Add column for weight input
-                df['remark'] = "" # Add column for remark input
-                
                 st.markdown("<h6>Enter Actual Weights and Remarks:</h6>", unsafe_allow_html=True)
-                edited_df = st.data_editor(
-                    df,
-                    column_config={
-                        "party_job_no": "Party Job No",
-                        "width": "Width",
-                        "length": "Length",
-                        "actual_weight": st.column_config.NumberColumn("Actual Weight (kg)", format="%.2f", required=True),
-                        "remark": st.column_config.TextColumn("Remark (Optional)")
-                    },
-                    disabled=["party_job_no", "width", "length"],
-                    hide_index=True,
-                    key="weight_receipt_editor"
-                )
+
+                # Reset state if a new job card is selected
+                if st.session_state.get('current_jc_for_wr') != selected_jc_str:
+                    st.session_state.wr_weights = {i: 0.0 for i in range(len(designs))}
+                    st.session_state.wr_remarks = {i: "" for i in range(len(designs))}
+                    st.session_state.current_jc_for_wr = selected_jc_str
+
+                # --- Header for the list ---
+                st.divider()
+                c1, c2, c3, c4, c5 = st.columns([3, 1.5, 1.5, 1, 2.5])
+                c1.markdown("**Design Info**")
+                c2.markdown("**Expected**")
+                c3.markdown("**Actual**")
+                c4.markdown(" ") # For button
+                c5.markdown("**Remark**")
+                
+                for i, design_item in enumerate(designs):
+                    col1, col2, col3, col4, col5 = st.columns([3, 1.5, 1.5, 1, 2.5])
+                    
+                    with col1:
+                        st.markdown(f"**W:** {design_item.get('width', '-')}mm, **L:** {design_item.get('length', '-')}mm")
+                        st.caption(f"P/N: {design_item.get('party_job_no', 'N/A')}")
+                    
+                    with col2:
+                        st.text_input("Expected Wt.", value=f"{float(design_item.get('weight', 0)):.2f} kg", disabled=True, key=f"exp_weight_{selected_jc_str}_{i}", label_visibility="collapsed")
+
+                    with col3:
+                        st.text_input("Actual Wt.", value=f"{st.session_state.wr_weights.get(i, 0.0):.2f} kg", disabled=True, key=f"act_weight_{selected_jc_str}_{i}", label_visibility="collapsed")
+                    
+                    with col4:
+                        if st.button("Get", key=f"get_weight_{selected_jc_str}_{i}"):
+                            with st.spinner("Fetching..."):
+                                try:
+                                    response_data = services.weight_receipt.get_current_weight_from_scale()
+                                    if response_data.get("success") and response_data.get("status") == "stable":
+                                        st.session_state.wr_weights[i] = response_data.get("weight", 0.0)
+                                        st.toast(f"Weight received: {response_data.get('weight', 0.0):.2f} kg")
+                                        st.rerun() # Rerun to update the 'Actual Wt.' field
+                                    else:
+                                        st.warning(f"Unstable: {response_data.get('status')}", icon="⚠️")
+                                except Exception as e:
+                                    st.error(f"API Error", icon="🚨")
+                    
+                    with col5:
+                        st.session_state.wr_remarks[i] = st.text_input(
+                            "Remark", 
+                            value=st.session_state.wr_remarks.get(i, ""), 
+                            key=f"remark_design_{selected_jc_str}_{i}",
+                            label_visibility="collapsed"
+                        )
+                    st.divider()
+                st.markdown("---")
 
                 if st.button("Save Weight Receipt", key="save_wr_button_loose"):
                     weighed_designs = []
-                    for _, row in edited_df.iterrows():
-                        if row['actual_weight'] <= 0:
-                            st.error("Please enter a valid weight for all design items.")
+                    for i, design_data in enumerate(designs):
+                        actual_weight = st.session_state.wr_weights.get(i, 0.0)
+                        if actual_weight <= 0:
+                            st.error(f"Please fetch a valid weight for all design items (Design {i+1}).")
                             st.stop()
                         
-                        weighed_designs.append(WeighedDesignDetail(**row))
+                        # Create a new dict for WeighedDesignDetail, ensuring all fields are present
+                        weighed_design_data = design_data.copy()
+                        weighed_design_data['actual_weight'] = actual_weight
+                        weighed_design_data['remark'] = st.session_state.wr_remarks.get(i, "")
+                        
+                        weighed_designs.append(WeighedDesignDetail(**weighed_design_data))
                     
                     wr_number = st.session_state.get("wr_number_input", "").strip()
                     if not wr_number:
@@ -159,12 +210,35 @@ def render_weight_receipt_form():
                 st.markdown("<h6>Job Card Designs:</h6>", unsafe_allow_html=True)
                 st.dataframe(pd.DataFrame(designs).drop(columns=['actual_weight', 'remark'], errors='ignore'))
 
-                total_weight = st.number_input("Total Actual Weight (kg)", min_value=0.01, format="%.2f", key="total_core_weight")
+                # Reset total weight if a new job card is selected
+                if st.session_state.get('current_jc_for_wr') != selected_jc_str:
+                    st.session_state.wr_total_weight = 0.0
+                    st.session_state.current_jc_for_wr = selected_jc_str
+                
+                col1, col2 = st.columns([0.7, 0.3])
+                with col1:
+                    st.text("Total Actual Weight (kg)")
+                    st.metric(label=" ", value=f"{st.session_state.wr_total_weight:.2f}")
+                with col2:
+                    st.text(" ") # For spacing
+                    if st.button("Get Total Weight", key=f"get_total_weight_{selected_jc_str}"):
+                        with st.spinner("Fetching total weight..."):
+                            try:
+                                response_data = services.weight_receipt.get_current_weight_from_scale()
+                                if response_data.get("success") and response_data.get("status") == "stable":
+                                    st.session_state.wr_total_weight = response_data.get("weight", 0.0)
+                                    st.toast(f"Total weight received: {response_data.get('weight', 0.0):.2f} kg")
+                                else:
+                                    st.warning(f"Could not get stable total weight. Status: {response_data.get('status', 'unknown')}. Please try again.")
+                            except Exception as e:
+                                st.error(f"Error fetching total weight: {e}")
+
                 core_remark = st.text_input("Remark (Optional)", key="core_remark")
 
                 if st.button("Save Weight Receipt", key="save_wr_button_core"):
+                    total_weight = st.session_state.wr_total_weight
                     if total_weight <= 0:
-                        st.error("Please enter a valid total weight.")
+                        st.error("Please fetch a valid total weight.")
                         st.stop()
                     
                     weighed_designs = [WeighedDesignDetail(**d, remark=core_remark) for d in designs]

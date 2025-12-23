@@ -8,6 +8,7 @@ class AppSettings(BaseModel):
 class APISettings(BaseModel):
     google_service_account_json: Optional[str] = Field(default=None)
     google_sheets_id: Optional[str] = Field(default=None)
+    weighing_scale_url: Optional[str] = Field(default=None)
 
 class PowerAutomateSettings(BaseModel):
     pa_client_id: Optional[str] = Field(default=None)

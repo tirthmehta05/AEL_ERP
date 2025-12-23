@@ -5,12 +5,15 @@ from src.data_entry.models.weight_receipt_models import WeightReceiptRequest, We
 from datetime import date, datetime
 import json
 import pandas as pd
+import requests
+from config import settings
 
 logger = setup_logger(__name__)
 
 class WeightReceiptService:
     def __init__(self):
         self.repository = WeightReceiptRepository()
+        self.weighing_scale_api_url = settings.api.weighing_scale_url
 
     def get_next_weight_receipt_number(self) -> int:
         """
@@ -90,3 +93,34 @@ class WeightReceiptService:
         except Exception as e:
             logger.error(f"Error fetching weight receipts for party {party_name}: {str(e)}")
             return []
+
+    def get_current_weight_from_scale(self) -> dict:
+        """
+        Fetches the current weight from the external weighing scale API.
+        Returns a dict with 'success', 'weight', and 'status'.
+        """
+        if not self.weighing_scale_api_url:
+            logger.error("Weighing scale API URL is not configured.")
+            return {"success": False, "weight": 0.0, "status": "unconfigured"}
+
+        try:
+            response = requests.get(self.weighing_scale_api_url, timeout=5)
+            response.raise_for_status() # Raise an HTTPError for bad responses (4xx or 5xx)
+            data = response.json()
+            return {
+                "success": data.get("success", False),
+                "weight": data.get("weight", 0.0),
+                "status": data.get("status", "unknown")
+            }
+        except requests.exceptions.Timeout:
+            logger.error(f"Weighing scale API request timed out after 5 seconds.")
+            return {"success": False, "weight": 0.0, "status": "timeout"}
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error connecting to weighing scale API: {e}")
+            return {"success": False, "weight": 0.0, "status": "error"}
+        except ValueError: # Catches JSON decode errors
+            logger.error(f"Weighing scale API returned invalid JSON: {response.text}")
+            return {"success": False, "weight": 0.0, "status": "invalid_response"}
+        except Exception as e:
+            logger.error(f"An unexpected error occurred while fetching weight: {e}")
+            return {"success": False, "weight": 0.0, "status": "unexpected_error"}
