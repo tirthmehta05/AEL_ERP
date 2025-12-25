@@ -21,7 +21,7 @@ def get_job_cards(_services: AppServices, start, end):
     """Cached function to fetch job card data."""
     return _services.pdf.get_sales_orders_for_job_card(start_date=start, end_date=end)
 
-@st.cache_data
+@st.cache_resource
 def get_sales_order_dropdown_data(_services: AppServices):
     """Cached function to fetch dropdown data for sales orders."""
     return _services.sales_order.get_dropdown_data()
@@ -163,62 +163,54 @@ def render_delivery_challan_tab(services: AppServices):
                 def _prepare_challan_data(receipts_df):
                     items = []
                     grand_total_weight = 0
-                    # Group by JobCardNumber to consolidate items
-                    for job_card_number, group in receipts_df.groupby("JobCardNumber"):
-                        first_row = group.iloc[0]
+                    for _, receipt_row in receipts_df.iterrows():
+                        is_core_building = receipt_row.get('WeightEntryType') == 'Building Core'
                         line_items = []
-                        total_job_card_weight = 0
+                        receipt_total_weight = 0
 
-                        # Each row in the group is a Weight Receipt
-                        for _, receipt_row in group.iterrows():
-                            is_core_building = receipt_row.get('WeightEntryType') == 'Building Core'
-                            
-                            if is_core_building:
-                                core_weight = float(receipt_row.get('TotalWeight') or 0)
-                                if core_weight > 0:
-                                    designs = json.loads(receipt_row.get('DesignDetailsWithWeightsJSON', '[]'))
-                                    
-                                    if isinstance(designs, list):
-                                        for design in designs:
-                                            description = f"{design.get('width', '')} X {design.get('length', '')}"
-                                            if design.get('mm_stack'):
-                                                description += f" X {design.get('mm_stack', '')}"
-                                            
-                                            line_items.append({
-                                                "description": description,
-                                                "remark": design.get('remark', ''),
-                                                "weight": None # No individual weight for core building
-                                            })
-                                    total_job_card_weight += core_weight
-                            else:
-                                # Legacy or "Loose Strips" logic
+                        if is_core_building:
+                            core_weight = float(receipt_row.get('TotalWeight') or 0)
+                            if core_weight > 0:
                                 designs = json.loads(receipt_row.get('DesignDetailsWithWeightsJSON', '[]'))
                                 if isinstance(designs, list):
                                     for design in designs:
-                                        weight = float(design.get('actual_weight') or 0)
-                                        if weight > 0:
-                                            remark = design.get('remark', '')
-                                            description = f"{design.get('width', '')} X {design.get('length', '')}"
-                                            if design.get('mm_stack'):
-                                                description += f" X {design.get('mm_stack', '')}"
-                                            
-                                            line_items.append({
-                                                "description": description,
-                                                "remark": remark,
-                                                "weight": weight
-                                            })
-                                            total_job_card_weight += weight
+                                        description = f"{design.get('width', '')} X {design.get('length', '')}"
+                                        if design.get('mm_stack'):
+                                            description += f" X {design.get('mm_stack', '')}"
+                                        line_items.append({
+                                            "description": description,
+                                            "remark": design.get('remark', ''),
+                                            "weight": None
+                                        })
+                                receipt_total_weight = core_weight
+                        else:
+                            # "Loose Strips" logic
+                            designs = json.loads(receipt_row.get('DesignDetailsWithWeightsJSON', '[]'))
+                            if isinstance(designs, list):
+                                for design in designs:
+                                    weight = float(design.get('actual_weight') or 0)
+                                    if weight > 0:
+                                        remark = design.get('remark', '')
+                                        description = f"{design.get('width', '')} X {design.get('length', '')}"
+                                        if design.get('mm_stack'):
+                                            description += f" X {design.get('mm_stack', '')}"
+                                        line_items.append({
+                                            "description": description,
+                                            "remark": remark,
+                                            "weight": weight
+                                        })
+                                        receipt_total_weight += weight
                         
                         if line_items:
-                            grand_total_weight += total_job_card_weight
+                            grand_total_weight += receipt_total_weight
                             items.append({
-                                "job_no": job_card_number,
-                                "po_no": first_row.get('PONumber', ''),
+                                "job_no": receipt_row.get('JobCardNumber', ''),
+                                "po_no": receipt_row.get('PONumber', ''),
                                 "line_items": line_items,
                                 "summary": {
-                                    "material": first_row.get('Material', ''),
-                                    "sets": first_row.get('Sets', 0),
-                                    "total_weight": total_job_card_weight
+                                    "material": receipt_row.get('Material', ''),
+                                    "sets": receipt_row.get('Sets', 0),
+                                    "total_weight": receipt_total_weight
                                 }
                             })
 
@@ -237,7 +229,8 @@ def render_delivery_challan_tab(services: AppServices):
                             "vehicle_no": ""
                         },
                         "items": items,
-                        "grand_total_weight": grand_total_weight
+                        "grand_total_weight": grand_total_weight,
+                        "receipts": receipts_df
                     }
                     return challan_data
 

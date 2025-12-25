@@ -23,6 +23,7 @@ class WeightReceiptRequest(BaseModel):
     designs: List[WeighedDesignDetail]
     weight_entry_type: str = "Loose Strips"
     total_weight: Optional[float] = None
+    deduction: float = 0.0
 
 class WeightReceiptRecord(BaseModel):
     """Record model for Weight Receipt data."""
@@ -36,6 +37,7 @@ class WeightReceiptRecord(BaseModel):
     designs_json: str
     weight_entry_type: str = "Loose Strips"
     total_weight: Optional[float] = None
+    deduction: float = 0.0
 
     def to_list(self) -> list:
         """Convert to list format for Google Sheets."""
@@ -50,4 +52,5 @@ class WeightReceiptRecord(BaseModel):
             self.designs_json,
             self.weight_entry_type,
             self.total_weight,
+            self.deduction,
         ]

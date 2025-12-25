@@ -143,6 +143,22 @@ def render_weight_receipt_form():
             # Use session state to hold the value across reruns
             sets_for_this_receipt_val = st.session_state.get('wr_sets_for_receipt', min(1, remaining_sets))
 
+            # --- Graceful handling for StreamlitValueAboveMaxError ---
+            if sets_for_this_receipt_val > remaining_sets:
+                st.warning(f"Draft has {sets_for_this_receipt_val} sets, but only {remaining_sets} remain. Please adjust or clear draft.", icon="⚠️")
+                # Offer to reset the value to remaining_sets
+                if st.button("Reset Sets and Clear Draft"):
+                    st.session_state.wr_sets_for_receipt = remaining_sets
+                    st.session_state.wr_weights = {}
+                    st.session_state.wr_total_weight = 0.0
+                    st.session_state.wr_draft_data = {}
+                    st.session_state.last_selected_index = None
+                    services.weight_receipt.clear_weight_receipt_drafts(selected_jc_str)
+                    st.toast("Sets reset and draft cleared.", icon="🗑️")
+                    st.rerun()
+                # If we don't reset, force the value to remaining_sets for the current run to prevent the error
+                sets_for_this_receipt_val = remaining_sets
+
             sets_for_this_receipt = st.number_input(
                 "Number of Sets for this Receipt",
                 min_value=1,
@@ -199,6 +215,7 @@ def render_weight_receipt_form():
             # --- Display Design Details ---
             st.markdown("<h6>Design Details (Scaled for this Receipt)</h6>", unsafe_allow_html=True)
             weight_entry_type = st.radio("Weight Entry Type", ["Loose Strips", "Building Core"], index=0, key="weight_entry_type")
+            deduction = st.number_input("Deduction (kg)", value=0.0, step=0.1, key="deduction_input")
             
             drafts = st.session_state.get('wr_draft_data', {})
 
@@ -219,37 +236,46 @@ def render_weight_receipt_form():
                     st.session_state.last_selected_index = None
 
                 st.markdown("---")
-                col1, col2 = st.columns(2)
+                col1, col2, col3 = st.columns(3)
                 with col1:
-                    if st.button("Get Weight for Selected Design", key="get_weight_for_selected_design"):
-                        idx_to_weigh = st.session_state.get('last_selected_index')
-                        if idx_to_weigh is not None:
-                            with st.spinner("Fetching weight..."):
-                                response_data = services.weight_receipt.get_current_weight_from_scale()
-                                if response_data.get("success") and response_data.get("status") == "stable":
-                                    weight = response_data.get("weight", 0.0)
-                                    original_index = edited_df.loc[idx_to_weigh, "original_index"]
-                                    st.session_state.wr_weights[original_index] = weight
-                                    st.toast(f"Weight received: {weight:.2f} kg")
-
-                                    sets_for_this_receipt = st.session_state.get('wr_sets_for_receipt', 0)
-                                    services.weight_receipt.save_weight_receipt_draft(
-                                        job_card=selected_jc_str,
-                                        design_index=original_index,
-                                        weight=weight,
-                                        sets_for_this_receipt=sets_for_this_receipt
-                                    )
-                                    st.session_state.last_selected_index = None
-                                    st.rerun()
-                                else:
-                                    st.warning(f"Unstable: {response_data.get('status')}", icon="⚠️")
-                        else:
-                            st.warning("Please select a design to weigh by checking its box.")
+                    get_weight_clicked = st.button("Get Weight", key="get_weight_for_selected_design")
                 with col2:
+                    add_weight_clicked = st.button("Add Weight", key="add_weight_for_selected_design")
+                with col3:
                     if st.session_state.get('last_selected_index') is not None:
                         if st.button("Clear Selection", key="clear_selection"):
                             st.session_state.last_selected_index = None
                             st.rerun()
+
+                if get_weight_clicked or add_weight_clicked:
+                    idx_to_weigh = st.session_state.get('last_selected_index')
+                    if idx_to_weigh is not None:
+                        with st.spinner("Fetching weight..."):
+                            response_data = services.weight_receipt.get_current_weight_from_scale()
+                            if response_data.get("success") and response_data.get("status") == "stable":
+                                weight = response_data.get("weight", 0.0)
+                                original_index = edited_df.loc[idx_to_weigh, "original_index"]
+                                
+                                if add_weight_clicked:
+                                    st.session_state.wr_weights[original_index] = st.session_state.wr_weights.get(original_index, 0.0) + weight
+                                    st.toast(f"Added {weight:.2f} kg. New total: {st.session_state.wr_weights[original_index]:.2f} kg", icon="⚖️")
+                                else: # Get Weight
+                                    st.session_state.wr_weights[original_index] = weight
+                                    st.toast(f"Weight received: {weight:.2f} kg", icon="⚖️")
+
+                                sets_for_this_receipt = st.session_state.get('wr_sets_for_receipt', 0)
+                                services.weight_receipt.save_weight_receipt_draft(
+                                    job_card=selected_jc_str,
+                                    design_index=original_index,
+                                    weight=st.session_state.wr_weights[original_index],
+                                    sets_for_this_receipt=sets_for_this_receipt
+                                )
+                                st.session_state.last_selected_index = None
+                                st.rerun()
+                            else:
+                                st.warning(f"Unstable: {response_data.get('status')}", icon="⚠️")
+                    else:
+                        st.warning("Please select a design to weigh by checking its box.")
 
                 st.markdown("---")
 
@@ -280,6 +306,7 @@ def render_weight_receipt_form():
                         designs=weighed_designs,
                         weight_entry_type="Loose Strips",
                         total_weight=actual_total_weight,
+                        deduction=deduction,
                     )
 
                     with st.spinner("Saving Weight Receipt..."):
@@ -287,7 +314,7 @@ def render_weight_receipt_form():
                         if success:
                             st.success(f"Weight Receipt {wr_number} saved successfully!")
                             user_id = st.session_state.get('user_info', {}).get('username', 'SYSTEM')
-                            services.weight_receipt.save_to_finished_goods(user_id=user_id, job_card=selected_jc['job_card_number'], fg_qty=actual_total_weight)
+                            services.weight_receipt.save_to_finished_goods(user_id=user_id, job_card=selected_jc['job_card_number'], fg_qty=actual_total_weight - deduction)
                             services.weight_receipt.clear_weight_receipt_drafts(selected_jc['job_card_number'])
                             # Clear state
                             st.session_state.wr_weights = {}
@@ -307,7 +334,7 @@ def render_weight_receipt_form():
                 st.markdown("<h6>Enter Total Actual Weight:</h6>", unsafe_allow_html=True)
                 
                 # --- UI for getting weight ---
-                core_col1, core_col2 = st.columns([3, 1])
+                core_col1, core_col2, core_col3 = st.columns([2, 1, 1])
                 with core_col1:
                     total_weight_display = st.text_input(
                         "Total Actual Weight (kg)", 
@@ -317,24 +344,34 @@ def render_weight_receipt_form():
                     )
                 with core_col2:
                     st.markdown('<div style="height: 28px;"></div>', unsafe_allow_html=True) # Spacer for alignment
-                    if st.button("Get Total Weight", key="get_total_weight_core"):
-                        with st.spinner("Fetching weight..."):
-                            response_data = services.weight_receipt.get_current_weight_from_scale()
-                            if response_data.get("success") and response_data.get("status") == "stable":
-                                weight = response_data.get("weight", 0.0)
+                    get_weight_clicked_core = st.button("Get Weight", key="get_total_weight_core")
+                with core_col3:
+                    st.markdown('<div style="height: 28px;"></div>', unsafe_allow_html=True)
+                    add_weight_clicked_core = st.button("Add Weight", key="add_total_weight_core")
+
+                if get_weight_clicked_core or add_weight_clicked_core:
+                    with st.spinner("Fetching weight..."):
+                        response_data = services.weight_receipt.get_current_weight_from_scale()
+                        if response_data.get("success") and response_data.get("status") == "stable":
+                            weight = response_data.get("weight", 0.0)
+                            
+                            if add_weight_clicked_core:
+                                st.session_state.wr_total_weight += weight
+                                st.toast(f"Added {weight:.2f} kg. New total: {st.session_state.wr_total_weight:.2f} kg", icon="⚖️")
+                            else: # Get Weight
                                 st.session_state.wr_total_weight = weight
-                                st.toast(f"Weight received: {weight:.2f} kg")
-                                
-                                # Auto-save the core weight as a draft
-                                services.weight_receipt.save_weight_receipt_draft(
-                                    job_card=selected_jc_str,
-                                    design_index=-1, # Use -1 to signify a 'Building Core' total weight draft
-                                    weight=weight,
-                                    sets_for_this_receipt=st.session_state.get('wr_sets_for_receipt', 0)
-                                )
-                                st.rerun()
-                            else:
-                                st.warning(f"Weight is unstable: {response_data.get('status')}", icon="⚠️")
+                                st.toast(f"Weight received: {weight:.2f} kg", icon="⚖️")
+
+                            # Auto-save the core weight as a draft
+                            services.weight_receipt.save_weight_receipt_draft(
+                                job_card=selected_jc_str,
+                                design_index=-1, # Use -1 to signify a 'Building Core' total weight draft
+                                weight=st.session_state.wr_total_weight,
+                                sets_for_this_receipt=st.session_state.get('wr_sets_for_receipt', 0)
+                            )
+                            st.rerun()
+                        else:
+                            st.warning(f"Weight is unstable: {response_data.get('status')}", icon="⚠️")
 
                 st.markdown("---")
 
@@ -366,6 +403,7 @@ def render_weight_receipt_form():
                         designs=weighed_designs,
                         weight_entry_type="Building Core",
                         total_weight=actual_total_weight,
+                        deduction=deduction,
                     )
                     
                     with st.spinner("Saving Weight Receipt..."):
@@ -373,7 +411,7 @@ def render_weight_receipt_form():
                         if success:
                             st.success(f"Weight Receipt {wr_number} saved successfully!")
                             user_id = st.session_state.get('user_info', {}).get('username', 'SYSTEM')
-                            services.weight_receipt.save_to_finished_goods(user_id=user_id, job_card=selected_jc['job_card_number'], fg_qty=actual_total_weight)
+                            services.weight_receipt.save_to_finished_goods(user_id=user_id, job_card=selected_jc['job_card_number'], fg_qty=actual_total_weight - deduction)
                             services.weight_receipt.clear_weight_receipt_drafts(selected_jc['job_card_number'])
                             if 'wr_number_input' in st.session_state:
                                 del st.session_state['wr_number_input']

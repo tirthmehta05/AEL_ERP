@@ -64,6 +64,7 @@ class WeightReceiptService:
                 designs_json=designs_json,
                 weight_entry_type=request.weight_entry_type,
                 total_weight=request.total_weight,
+                deduction=request.deduction,
             )
 
             success = self.repository.save_weight_receipt(record.to_list())
@@ -116,7 +117,7 @@ class WeightReceiptService:
             data = response.json()
             return {
                 "success": data.get("success", False),
-                "weight": data.get("weight", 0.0),
+                "weight": abs(data.get("weight", 0.0)),
                 "status": data.get("status", "unknown")
             }
         except requests.exceptions.Timeout:
