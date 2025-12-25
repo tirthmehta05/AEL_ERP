@@ -237,7 +237,7 @@ def add_ready_design_to_state(width, length):
         if width <= 0 or length <= 0: raise ValueError("Width and Length must be selected via FM Name.")
 
         design = DesignDetail(
-            party_job_no=st.session_state.ready_card_no or f"RN-{int(time.time())}",
+            party_job_no=st.session_state.so_job_card_number,
             fm_name=st.session_state.ready_fm_name,
             width=width, 
             length=length,
@@ -264,17 +264,9 @@ def render_ready_design_entry_fields():
     st.markdown("--- ")
     st.markdown("<h5>Add Design Details (Ready)</h5>", unsafe_allow_html=True)
 
-    # Fetch the next ready card number if it's not already in the session
-    if 'ready_card_no_generated' not in st.session_state:
-        services = create_services()
-        # Ensure so_type is available, default to "CRNO" if not set yet (e.g., first run)
-        material_type_for_ready = st.session_state.so_type if 'so_type' in st.session_state else "CRNO"
-        st.session_state.ready_card_no_generated = services.sales_order.get_next_ready_card_number(material_type_for_ready)
-
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        st.text_input("Card No.", value=st.session_state.ready_card_no_generated, key="ready_card_no", disabled=True)
         fm_name = st.selectbox("FM Name", options=[""] + list(FM_DATA.keys()), key="ready_fm_name")
 
     width = 0.0
@@ -366,10 +358,13 @@ def render_full_coil_sale_form(service: SalesOrderService, dropdown_data):
     """Renders the form for Full Coil Sale."""
     st.markdown("<h5>Full Coil Sale Details</h5>", unsafe_allow_html=True)
     
+    # Initialize a tracker for the material type used in this form
+    if 'fcs_material_type_for_jc' not in st.session_state:
+        st.session_state.fcs_material_type_for_jc = None
+    
     # Load dropdowns from RM Inward service
     @st.cache_resource(ttl=600)
     def load_rm_inward_dropdowns(_service: SalesOrderService):
-        # We need to get the rm_inward_service from the AppServices
         app_services = create_services()
         return app_services.rm_inward.get_dropdown_data()
 
@@ -377,22 +372,30 @@ def render_full_coil_sale_form(service: SalesOrderService, dropdown_data):
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.checkbox("Enter Job Card Manually", key="fcs_manual_job_card")
-        if not st.session_state.fcs_manual_job_card:
-            if 'fcs_job_card_generated' not in st.session_state:
-                # Ensure fcs_material_type is available, default to "CR COIL" if not set yet
-                fcs_material_type = st.session_state.get('fcs_material_type', "CR COIL")
-                st.session_state.fcs_job_card_generated = service.generate_full_coil_sale_job_card_number(fcs_material_type)
-            st.text_input("Job Card", value=st.session_state.fcs_job_card_generated, key="fcs_job_card", disabled=True)
-        else:
-            st.text_input("Job Card", key="fcs_job_card")
-        
         st.date_input("Order Entry Date", key="fcs_order_date")
-        st.text_input("PO No. (Optional)", key="fcs_po_no")
         st.selectbox("Party Name", options=dropdown_data.party_names, index=None, placeholder="Select a Party", key="fcs_party_name", accept_new_options=True)
         
         material_type_options = ["CR COIL", "CRGO EI", "CRNO", "CRNO COIL", "CRNO EI", "CRNO EI TRD", "CRNO TL"]
-        st.selectbox("Material Type", options=material_type_options, index=None, placeholder="Select or type a Material Type", key="fcs_material_type", accept_new_options=True)
+        st.selectbox("Material Type", options=material_type_options, index=0, key="fcs_material_type", accept_new_options=True)
+        
+        st.checkbox("Enter Job Card Manually", key="fcs_manual_job_card")
+
+        # --- Unified Job Card Generation ---
+        if not st.session_state.fcs_manual_job_card:
+            current_fcs_type = st.session_state.get('fcs_material_type')
+            previous_fcs_type = st.session_state.fcs_material_type_for_jc
+            
+            # Regenerate if type changes or if it was never generated
+            if (current_fcs_type and previous_fcs_type != current_fcs_type) or 'fcs_job_card_generated' not in st.session_state:
+                if current_fcs_type: # Ensure a type is selected
+                    st.session_state.fcs_job_card_generated = service.generate_sequential_job_card_number(current_fcs_type)
+                    st.session_state.fcs_material_type_for_jc = current_fcs_type
+            
+            st.text_input("Job Card", value=st.session_state.get('fcs_job_card_generated', ""), key="fcs_job_card", disabled=True)
+        else:
+            st.text_input("Job Card", key="fcs_job_card")
+        
+        st.text_input("PO No. (Optional)", key="fcs_po_no")
 
     with col2:
         st.selectbox("Width (mm)", options=rm_inward_dropdowns.widths, index=None, placeholder="Select or type a Width", key="fcs_width", accept_new_options=True)
