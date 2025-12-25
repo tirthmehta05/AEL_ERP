@@ -552,12 +552,15 @@ class PDFService:
         pdf.set_font("Helvetica", 'B', 10)
         total_cell_width = page_width - weight_w
         
+        total_deduction = sum(pd.to_numeric(receipt.get('Deduction', 0)) for _, receipt in data.get('receipts', pd.DataFrame()).iterrows())
+        net_total = data.get('grand_total_weight', 0) - total_deduction
+
         pdf.cell(total_cell_width, row_height, "Total", border=1, align='R')
         pdf.cell(weight_w, row_height, f"{data.get('grand_total_weight', 0):.3f}", border=1, align='R', ln=True)
         pdf.cell(total_cell_width, row_height, "Deduction", border=1, align='R')
-        pdf.cell(weight_w, row_height, "0.000", border=1, align='R', ln=True)
+        pdf.cell(weight_w, row_height, f"{total_deduction:.3f}", border=1, align='R', ln=True)
         pdf.cell(total_cell_width, row_height, "Net Total", border=1, align='R')
-        pdf.cell(weight_w, row_height, f"{data.get('grand_total_weight', 0):.3f}", border=1, align='R', ln=True)
+        pdf.cell(weight_w, row_height, f"{net_total:.3f}", border=1, align='R', ln=True)
         pdf.ln(5)
 
         # --- Notes & Signature Section ---
@@ -747,9 +750,11 @@ class PDFService:
         pdf.set_font("Helvetica", '', 12)
         col_width = 95
         line_height = 8
+        deduction = float(receipt_data.get('Deduction', 0.0))
+        net_weight = total_weight - deduction
         # Line 2: Deduction, Net
-        pdf.cell(col_width, line_height, "Deduction : 0.00", border=0)
-        pdf.cell(col_width, line_height, f"Net : {total_weight:.2f}", border=0, ln=True)
+        pdf.cell(col_width, line_height, f"Deduction : {deduction:.2f}", border=0)
+        pdf.cell(col_width, line_height, f"Net : {net_weight:.2f}", border=0, ln=True)
         pdf.ln(15) # Increased spacing
 
         # --- Signatures and Timestamps ---
