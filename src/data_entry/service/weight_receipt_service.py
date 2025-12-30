@@ -165,15 +165,24 @@ class WeightReceiptService:
             logger.error(f"Error calculating receipted sets for JC {job_card_number}: {e}")
             return 0
 
-    def save_weight_receipt_draft(self, job_card: str, design_index: int, weight: float, sets_for_this_receipt: int) -> bool:
+    def save_weight_receipt_draft(self, job_card: str, design_index: int, weight: float, remark: str, sets_for_this_receipt: int) -> bool:
         """Saves a single design's weighed data to a draft sheet."""
         try:
             sheet_name = "Weight Receipt Draft"
-            headers = ["JobCardNumber", "DesignIndex", "ActualWeight", "Timestamp", "ReceiptSets"]
+            headers = ["JobCardNumber", "DesignIndex", "ActualWeight", "Timestamp", "ReceiptSets", "Remark"]
             self.google_service.ensure_worksheet_with_headers(self.spreadsheet_id, sheet_name, headers)
 
             timestamp = datetime.now().isoformat()
-            row_data = [job_card, int(design_index), weight, timestamp, int(sets_for_this_receipt)]
+            
+            # Explicitly cast all data to standard Python types to prevent serialization errors.
+            row_data = [
+                str(job_card), 
+                int(design_index), 
+                float(weight), 
+                str(timestamp), 
+                int(sets_for_this_receipt), 
+                str(remark)
+            ]
 
             success = self.google_service.append_data(self.spreadsheet_id, sheet_name, [row_data])
             
@@ -187,25 +196,26 @@ class WeightReceiptService:
             logger.error(f"Error in save_weight_receipt_draft for JC {job_card}: {e}")
             return False
 
-    def get_weight_receipt_drafts(self, job_card: str) -> tuple[dict, int | None, float | None]:
+    def get_weight_receipt_drafts(self, job_card: str) -> tuple[dict, int | None, float | None, str | None]:
         """
         Retrieves the latest draft data for a given job card.
         Returns a tuple: (
             dictionary mapping design_index to its data,
             the number of sets for the draft session,
-            the total weight if a 'Building Core' draft exists
+            the total weight if a 'Building Core' draft exists,
+            the remark if a 'Building Core' draft exists
         ).
         """
         try:
             sheet_name = "Weight Receipt Draft"
             df = self.google_service.get_worksheet_data(self.spreadsheet_id, sheet_name)
             if df is None or df.empty or 'JobCardNumber' not in df.columns:
-                return {}, None, None
+                return {}, None, None, None
 
             # Filter for the job card and ensure correct types
             drafts_df = df[df['JobCardNumber'] == job_card].copy()
             if drafts_df.empty:
-                return {}, None, None
+                return {}, None, None, None
             
             drafts_df['Timestamp'] = pd.to_datetime(drafts_df['Timestamp'], errors='coerce')
             drafts_df['DesignIndex'] = pd.to_numeric(drafts_df['DesignIndex'], errors='coerce')
@@ -220,11 +230,13 @@ class WeightReceiptService:
             core_drafts = drafts_df[drafts_df['DesignIndex'] == -1]
             loose_strip_drafts = drafts_df[drafts_df['DesignIndex'] >= 0]
 
-            # Get the latest total weight if a core draft exists
+            # Get the latest total weight and remark if a core draft exists
             draft_total_weight = None
+            draft_core_remark = None
             if not core_drafts.empty:
                 latest_core_draft = core_drafts.sort_values('Timestamp', ascending=False).iloc[0]
                 draft_total_weight = pd.to_numeric(latest_core_draft['ActualWeight'], errors='coerce')
+                draft_core_remark = str(latest_core_draft.get('Remark', '')) if pd.notna(latest_core_draft.get('Remark')) else ''
 
             # Sort by timestamp and get the latest entry for each loose strip design index
             latest_drafts_per_design = loose_strip_drafts.sort_values('Timestamp', ascending=False).drop_duplicates(subset=['DesignIndex'], keep='first')
@@ -232,13 +244,16 @@ class WeightReceiptService:
             # Format loose strips into the required dictionary structure
             result = {}
             for _, row in latest_drafts_per_design.iterrows():
+                # Ensure remark is a string, default to empty string if it's missing or not a string type
+                remark = str(row.get('Remark', '')) if pd.notna(row.get('Remark')) else ''
                 result[row['DesignIndex']] = {
-                    'weight': pd.to_numeric(row['ActualWeight'], errors='coerce')
+                    'weight': pd.to_numeric(row['ActualWeight'], errors='coerce'),
+                    'remark': remark
                 }
-            return result, draft_sets_value, draft_total_weight
+            return result, draft_sets_value, draft_total_weight, draft_core_remark
         except Exception as e:
             logger.error(f"Error in get_weight_receipt_drafts for JC {job_card}: {e}")
-            return {}, None, None
+            return {}, None, None, None
 
     def clear_weight_receipt_drafts(self, job_card: str) -> bool:
         """Removes all draft entries for a given job card from the draft sheet."""
@@ -264,31 +279,42 @@ class WeightReceiptService:
             logger.error(f"Error clearing drafts for JC {job_card}: {e}")
             return False
 
-    def save_to_finished_goods(self, user_id: str, job_card: str, fg_qty: float) -> bool:
+    def save_to_finished_goods(self, user_id: str, job_card: str, fg_qty: float, weight_receipt_number: str) -> bool:
         """
         Saves a record to the 'Finished Goods Transfer' sheet, ensuring headers are on row 2
-        and the new data is inserted before the last row.
+        and the new data is inserted before the last row. This version accounts for formula columns.
         """
         try:
             sheet_name = "Finished Goods Transfer"
-            headers = ["USERID", "FG DATE", "Job Card", "FG Qty"]
+            
+            # Use None for placeholder headers to ensure cells are truly empty if the sheet is new.
+            headers = [
+                "USERID", "FG DATE", "Job Card", "FG Qty", # Columns A, B, C, D
+                None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, # 19 placeholders for E-W
+                "Weight Receipt Number" # Column X
+            ]
             
             spreadsheet = self.google_service.client.open_by_key(self.spreadsheet_id)
             try:
                 worksheet = spreadsheet.worksheet(sheet_name)
-                # If sheet exists but is empty, it may not have headers.
-                # A simple check is to see if A2 is empty.
+                # This check is safe: it only writes headers if the sheet is brand new and A2 is empty.
                 if not worksheet.acell('A2').value:
                     worksheet.update('A2', [headers])
             except self.google_service.client.worksheet.exceptions.WorksheetNotFound:
-                worksheet = spreadsheet.add_worksheet(title=sheet_name, rows=100, cols=20)
+                worksheet = spreadsheet.add_worksheet(title=sheet_name, rows=100, cols=30) # cols=30 to allow for growth
                 # Add headers to the second row
                 worksheet.update('A2', [headers])
 
             fg_date = datetime.now().strftime("%Y-%m-%d")
-            row_data = [user_id, fg_date, job_card, fg_qty]
+            
+            # Use None for placeholder values to avoid overwriting formulas in the new row.
+            row_data = [
+                user_id, fg_date, job_card, fg_qty,
+                None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+                weight_receipt_number
+            ]
 
-            # Use the service's insert_row_before_last method
+            # Use the service's insert_row_before_last method, as confirmed by the user.
             success = self.google_service.insert_row_before_last(self.spreadsheet_id, sheet_name, [row_data])
             
             if success:
