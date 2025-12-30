@@ -22,8 +22,9 @@ def get_cached_sales_order_summary(_service, start_date, end_date, material_type
 
 def render():
     """Renders the main Slitting Plan page."""
-    if st.session_state.get('clear_cache_for_slitting_plan'):
-        st.session_state['clear_cache_for_slitting_plan'] = False
+    cache_clear_data = st.session_state.get('cache_to_clear')
+    if cache_clear_data and cache_clear_data.get('page') == 'slitting_plan':
+        st.session_state.pop('cache_to_clear') # Consume the flag
         try:
             get_cached_available_coils.clear()
             get_cached_material_type_options.clear()

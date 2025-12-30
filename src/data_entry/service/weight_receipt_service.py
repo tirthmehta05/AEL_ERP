@@ -51,7 +51,16 @@ class WeightReceiptService:
     def save_weight_receipt(self, request: WeightReceiptRequest) -> bool:
         """Saves a new weight receipt."""
         try:
-            designs_json = json.dumps([d.model_dump() for d in request.designs])
+            # Prepare the list of design dictionaries for JSON serialization
+            designs_to_dump = []
+            for d in request.designs:
+                design_dict = d.model_dump()
+                # Ensure 'remark' is never None before dumping to JSON
+                if design_dict.get('remark') is None:
+                    design_dict['remark'] = ''
+                designs_to_dump.append(design_dict)
+
+            designs_json = json.dumps(designs_to_dump)
             
             record = WeightReceiptRecord(
                 weight_receipt_number=request.weight_receipt_number,

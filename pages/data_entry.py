@@ -28,41 +28,37 @@ def render() -> None:
         "Assign Coils": None,  # No cache function
         "Weight Receipt": [wr_so_dropdowns, wr_job_cards],  # Has multiple caches
     }
+    tab_names = list(TABS.keys())
 
-    # Check for refresh signal BEFORE rendering the radio button
-    if st.session_state.get('clear_cache_for_data_entry'):
-        st.session_state['clear_cache_for_data_entry'] = False
+    # Determine the index for the radio button.
+    # Default to 0, but respect the existing state if it's available.
+    try:
+        radio_index = tab_names.index(st.session_state.data_entry_active_tab)
+    except (AttributeError, ValueError):
+        radio_index = 0 # Default for the very first load
 
-        # Get the active tab name from session state
-        active_tab_name = st.session_state.get('data_entry_active_tab', list(TABS.keys())[0])
+    # --- Cache Clearing and State Restoration ---
+    if 'cache_to_clear' in st.session_state:
+        tab_to_clear = st.session_state.pop('cache_to_clear')  # Use pop to get and delete in one step
 
-        cache_to_clear = TABS.get(active_tab_name)
-
-        if cache_to_clear:
-            if isinstance(cache_to_clear, list):
-                for cache_func in cache_to_clear:
+        cache_to_clear_func = TABS.get(tab_to_clear)
+        if cache_to_clear_func:
+            if isinstance(cache_to_clear_func, list):
+                for cache_func in cache_to_clear_func:
                     cache_func.clear()
             else:
-                cache_to_clear.clear()
-            st.toast(f"Cache for '{active_tab_name}' cleared!")
+                cache_to_clear_func.clear()
+            st.toast(f"Cache for '{tab_to_clear}' cleared!")
+
+        # Override the index ONLY for this refresh run
+        if tab_to_clear in tab_names:
+            radio_index = tab_names.index(tab_to_clear)
 
     # --- Main Form Selection ---
-    # tab1, tab2, tab3, tab4, tab5 = st.tabs(["Raw Material Inward Issue", "Raw Material Used", "Sales Order", "Assign Coils", "Weight Receipt"])
-
-    # with tab1:
-    #     render_raw_material_inward_issue_form()
-    # with tab2:
-    #     render_raw_material_used_form()
-    # with tab3:
-    #     render_sales_order_form()
-    # with tab4:
-    #     render_assign_coils_form()
-    # with tab5:
-    #     render_weight_receipt_form()
-    
     active_tab = st.radio(
         "Select Form:",
-        list(TABS.keys()),
+        tab_names,
+        index=radio_index,  # Use the calculated index
         horizontal=True,
         key="data_entry_active_tab",
         label_visibility="collapsed"
