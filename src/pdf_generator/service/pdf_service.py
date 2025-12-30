@@ -521,7 +521,7 @@ class PDFService:
                 x_before_p = pdf.get_x()
                 pdf.cell(desc_w, row_height, " " + line_item.get('description', ''), border='L', align='L')
                 pdf.set_x(x_before_p + desc_w)
-                pdf.cell(remark_w, row_height, line_item.get('remark', '') + " ", align='R')
+                pdf.cell(remark_w, row_height, str(line_item.get('remark', '')) + " ", align='R')
                 pdf.set_x(x_before_p + particulars_w)
 
                 weight_str = f"{line_item['weight']:.2f}" if line_item.get('weight') is not None else ""

@@ -341,36 +341,72 @@ def render_weight_receipt_tab(services: AppServices):
                     )
 
 def render_pdf_generator_page():
-    """Renders the main PDF Generator page with tabs."""
+    """Renders the main PDF Generator page with state-aware tabs."""
     st.title("📄 PDF Generator")
 
-    if st.session_state.get('clear_cache_for_pdf_generator'):
-        st.session_state['clear_cache_for_pdf_generator'] = False
-        try:
-            get_available_coils.clear()
-            get_printable_plans.clear()
-            get_job_cards.clear()
-            get_sales_order_dropdown_data.clear()
-            get_weight_receipts.clear()
-            st.toast("PDF Generator cache cleared!")
-        except NameError: # Functions might not be defined if tabs are not rendered
-            pass
-
     services = create_services()
-    
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Coil Sticker", "Slitting Plan", "Job Card", "Delivery Challan", "Weight Receipt"])
 
-    with tab1:
+    # Map tabs to the cache functions they depend on.
+    # This allows for targeted cache clearing.
+    TABS = {
+        "Coil Sticker": [get_available_coils],
+        "Slitting Plan": [get_printable_plans],
+        "Job Card": [get_job_cards],
+        "Delivery Challan": [get_sales_order_dropdown_data, get_weight_receipts],
+        "Weight Receipt": [get_sales_order_dropdown_data, get_weight_receipts]
+    }
+    tab_names = list(TABS.keys())
+
+    # --- State and Cache Management ---
+
+    # Determine the index for the radio button.
+    try:
+        radio_index = tab_names.index(st.session_state.pdf_generator_active_tab)
+    except (AttributeError, ValueError):
+        radio_index = 0 # Default for the very first load
+
+    # Check for a refresh request.
+    cache_clear_data = st.session_state.get('cache_to_clear')
+    if cache_clear_data and cache_clear_data.get('page') == 'pdf_generator':
+        tab_to_clear = cache_clear_data.get('tab')
+        st.session_state.pop('cache_to_clear') # Consume the flag
+
+        if tab_to_clear:
+            # Clear caches for the specific tab
+            caches_to_clear = TABS.get(tab_to_clear, [])
+            for cache_func in caches_to_clear:
+                cache_func.clear()
+            st.toast(f"Cache for '{tab_to_clear}' tab cleared!")
+            
+            # Ensure the UI stays on the cleared tab
+            if tab_to_clear in tab_names:
+                radio_index = tab_names.index(tab_to_clear)
+        else:
+            # If no specific tab is targeted, clear all for the page (optional)
+            for cache_list in TABS.values():
+                for cache_func in cache_list:
+                    cache_func.clear()
+            st.toast("Cache for PDF Generator page cleared!")
+
+    # --- UI Rendering ---
+
+    active_tab = st.radio(
+        "Select PDF Type:",
+        tab_names,
+        index=radio_index,
+        horizontal=True,
+        key="pdf_generator_active_tab",
+        label_visibility="collapsed"
+    )
+
+    # Render the content for the selected tab.
+    if active_tab == "Coil Sticker":
         render_coil_sticker_tab(services)
-    
-    with tab2:
+    elif active_tab == "Slitting Plan":
         render_slitting_plan_tab(services)
-
-    with tab3:
+    elif active_tab == "Job Card":
         render_job_card_tab(services)
-    
-    with tab4:
+    elif active_tab == "Delivery Challan":
         render_delivery_challan_tab(services)
-    
-    with tab5:
+    elif active_tab == "Weight Receipt":
         render_weight_receipt_tab(services)

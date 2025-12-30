@@ -22,7 +22,18 @@ def select_page() -> str:
 
         if st.button("🔄 Refresh Page", use_container_width=True):
             page_key = _sanitize_page_name(page)
-            st.session_state[f'clear_cache_for_{page_key}'] = True
+            active_tab_name = None
+
+            # For pages with tabs, find the active tab.
+            if page_key in ['data_entry', 'pdf_generator']:
+                active_tab_key = f'{page_key}_active_tab'  # e.g., 'data_entry_active_tab'
+                active_tab_name = st.session_state.get(active_tab_key)
+
+            # Set a structured object for the cache clearing logic to use.
+            st.session_state['cache_to_clear'] = {
+                "page": page_key,
+                "tab": active_tab_name
+            }
             st.rerun()
 
         st.markdown("---")
