@@ -108,6 +108,7 @@ class RMUsedService:
                 # Calculate available weight
                 merged_df['Weight'] = merged_df['Weight'].fillna(0)
                 merged_df['available_weight'] = merged_df['Coil Weight'] - merged_df['Weight']
+                merged_df['available_weight'] = merged_df['available_weight'].round(2)
                 
                 # Filter for coils with positive available weight
                 available_coils_df = merged_df[merged_df['available_weight'] > 0]

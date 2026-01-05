@@ -43,7 +43,7 @@ class WeightReceiptRecord(BaseModel):
         """Convert to list format for Google Sheets."""
         return [
             self.weight_receipt_number,
-            self.receipt_date.strftime("%Y-%m-%d"),
+            self.receipt_date.strftime("%d/%m/%Y"),
             self.job_card_number,
             self.party_name,
             self.po_no or "",

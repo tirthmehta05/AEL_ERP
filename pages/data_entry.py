@@ -38,9 +38,17 @@ def render() -> None:
         radio_index = 0 # Default for the very first load
 
     # --- Cache Clearing and State Restoration ---
-    if 'cache_to_clear' in st.session_state:
-        tab_to_clear = st.session_state.pop('cache_to_clear')  # Use pop to get and delete in one step
-
+    cache_clear_data = st.session_state.get('cache_to_clear')
+    if cache_clear_data:
+        # Pop the whole dict to consume the flag
+        st.session_state.pop('cache_to_clear') 
+        
+        # Check if it's the dict structure or a simple string for backward compatibility
+        if isinstance(cache_clear_data, dict):
+            tab_to_clear = cache_clear_data.get('tab')
+        else:
+            tab_to_clear = cache_clear_data
+            
         cache_to_clear_func = TABS.get(tab_to_clear)
         if cache_to_clear_func:
             if isinstance(cache_to_clear_func, list):

@@ -23,7 +23,7 @@ class RMUsedRecord(BaseModel):
     def to_list(self) -> list:
         """Convert to list format for Google Sheets"""
         return [
-            self.rm_used_date.strftime("%m/%d/%Y"),
+            self.rm_used_date.strftime("%d/%m/%Y"),
             self.card_no,
             self.coil_no,
             self.weight,

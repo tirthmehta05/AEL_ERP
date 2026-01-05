@@ -328,14 +328,18 @@ def handle_final_submission(service: SalesOrderService):
 
     try:
         request = SalesOrderRequest(
-            order_date=st.session_state.so_order_date, po_no=st.session_state.so_po_no,
-            party_name=st.session_state.so_party_name, delivery_date=st.session_state.so_delivery_date,
-            job_card_number=st.session_state.so_job_card_number, hole_size=st.session_state.so_hole_size,
-            number_of_cores=st.session_state.so_num_cores, rate_per_kg=st.session_state.so_rate_per_kg,
+            order_date=st.session_state.so_order_date,
+            po_no=st.session_state.so_po_no,
+            party_name=st.session_state.so_party_name,
+            delivery_date=st.session_state.so_delivery_date,
+            job_card_number=st.session_state.so_job_card_number,
+            hole_size=st.session_state.so_hole_size,
+            number_of_cores=st.session_state.so_num_cores,
+            rate_per_kg=st.session_state.so_rate_per_kg,
             header_core_stack=st.session_state.so_header_core_stack,
             coating=st.session_state.so_coating or None,
             designs=[DesignDetail(**d) for d in st.session_state.so_designs],
-            assigned_coils=[AssignedCoil(**c) for c in st.session_state.so_assigned_coils]
+            assigned_coils=[AssignedCoil(**c) for c in st.session_state.so_assigned_coils],
         )
         with st.spinner("Saving full order..."):
             success = service.save_sales_order(request)
