@@ -323,7 +323,7 @@ def render_weight_receipt_form():
 
                     request = WeightReceiptRequest(
                         weight_receipt_number=wr_number,
-                        receipt_date=receipt_date.isoformat(),
+                        receipt_date=receipt_date,
                         job_card_number=selected_jc_str,
                         party_name=selected_party,
                         po_no=selected_jc.get('po_no', 'N/A'),
@@ -431,7 +431,7 @@ def render_weight_receipt_form():
 
                     request = WeightReceiptRequest(
                         weight_receipt_number=wr_number,
-                        receipt_date=receipt_date.isoformat(),
+                        receipt_date=receipt_date,
                         job_card_number=selected_jc_str,
                         party_name=selected_party,
                         po_no=selected_jc.get('po_no', 'N/A'),

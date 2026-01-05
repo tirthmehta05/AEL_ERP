@@ -61,7 +61,7 @@ class RMInwardIssueRecord(BaseModel):
         """Convert to list format for Google Sheets"""
         return [
             self.coil_location,
-            self.rm_receipt_date.strftime("%m/%d/%Y"),
+            self.rm_receipt_date.strftime("%d/%m/%Y"),
             self.rm_type,
             self.coil_number,
             self.grade,

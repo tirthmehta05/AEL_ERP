@@ -149,8 +149,8 @@ class SalesOrderService:
             status = "Coils Assigned" if request.assigned_coils else "Pending Coil Assignment"
 
             data_row_jc = [
-                request.order_date.strftime("%Y-%m-%d"), request.po_no, request.party_name,
-                request.delivery_date.strftime("%Y-%m-%d"), request.job_card_number,
+                request.order_date.strftime("%d/%m/%Y"), request.po_no, request.party_name,
+                request.delivery_date.strftime("%d/%m/%Y"), request.job_card_number,
                 request.hole_size, request.number_of_cores, request.rate_per_kg,
                 request.header_core_stack, request.coating, designs_json, status
             ]
@@ -164,10 +164,10 @@ class SalesOrderService:
             sales_order_rows = []
             for design in request.designs:
                 sales_order_rows.append([
-                    request.job_card_number, request.order_date.strftime("%m/%d/%Y"), request.po_no,
+                    request.job_card_number, request.order_date.strftime("%d/%m/%Y"), request.po_no,
                     design.party_job_no, request.party_name, design.width, design.length, design.mm_stack,
                     design.pcs, request.hole_size, design.hole, design.sets, design.weight, design.type,
-                    design.thk, request.rate_per_kg, request.delivery_date.strftime("%m/%d/%Y"), design.fm_name
+                    design.thk, request.rate_per_kg, request.delivery_date.strftime("%d/%m/%Y"), design.fm_name
                 ])
             
             logger.info(f"Attempting to save {len(sales_order_rows)} rows to 'Sales Order' sheet.")
@@ -201,7 +201,7 @@ class SalesOrderService:
         try:
             row = [None] * 24
             row[0] = request.job_card
-            row[1] = request.order_date.strftime("%m/%d/%Y")
+            row[1] = request.order_date.strftime("%d/%m/%Y")
             row[2] = request.po_no
             row[3] = None  # Party Job No
             row[4] = request.party_name
@@ -216,7 +216,7 @@ class SalesOrderService:
             row[13] = request.material_type
             row[14] = request.thk
             row[15] = request.rate
-            row[16] = request.delivery_date.strftime("%m/%d/%Y")
+            row[16] = request.delivery_date.strftime("%d/%m/%Y")
             row[17] = request.remark
             row[18] = request.order_date.month
             row[19] = None  # Despatch Qty
