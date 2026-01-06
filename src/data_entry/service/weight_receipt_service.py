@@ -95,7 +95,7 @@ class WeightReceiptService:
             if df.empty:
                 return []
 
-            df['Date'] = pd.to_datetime(df['Date'], errors='coerce').dt.date
+            df['Date'] = pd.to_datetime(df['Date'], errors='coerce', dayfirst=True).dt.date
             
             filtered_df = df[
                 (df['PartyName'] == party_name) &
