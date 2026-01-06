@@ -25,7 +25,7 @@ class SlittingPlanRepository:
                 logger.warning(f"Date column '{date_col}' not found in 'RM inward_Issue format' sheet. Returning unfiltered data.")
                 return df
 
-            df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
+            df[date_col] = pd.to_datetime(df[date_col], errors='coerce', dayfirst=True)
             
             # Drop rows where date conversion failed
             original_count = len(df)

@@ -315,7 +315,7 @@ class PDFService:
         pdf.cell(key_width, 8, "Order Dt:", border='LTB', align='L')
         pdf.set_font("Helvetica", 'B', value_font_size)
         order_date_obj = job_card_data.get('order_date')
-        formatted_order_date = pd.to_datetime(order_date_obj).strftime('%d/%m/%Y') if pd.notna(order_date_obj) else 'N/A'
+        formatted_order_date = pd.to_datetime(order_date_obj, dayfirst=True).strftime('%d/%m/%Y') if pd.notna(order_date_obj) else 'N/A'
         pdf.cell(value_width, 8, formatted_order_date, border='RTB', align='L', ln=True)
 
         # Row 2
@@ -339,7 +339,7 @@ class PDFService:
         pdf.cell(key_width, 8, "Delivery Dt:", border='LTB', align='L')
         pdf.set_font("Helvetica", 'B', value_font_size)
         delivery_date_obj = job_card_data.get('delivery_date')
-        formatted_delivery_date = pd.to_datetime(delivery_date_obj).strftime('%d/%m/%Y') if pd.notna(delivery_date_obj) else 'N/A'
+        formatted_delivery_date = pd.to_datetime(delivery_date_obj, dayfirst=True).strftime('%d/%m/%Y') if pd.notna(delivery_date_obj) else 'N/A'
         pdf.cell(value_width, 8, formatted_delivery_date, border='RTB', align='L', ln=True)
 
         # Row 4
@@ -635,7 +635,7 @@ class PDFService:
         party_name = receipt_data.get('PartyName', 'N/A')
         po_no = receipt_data.get('PONumber', 'N/A')
         receipt_date_obj = receipt_data.get('Date')
-        receipt_date = pd.to_datetime(receipt_date_obj).strftime('%d/%m/%Y') if pd.notna(receipt_date_obj) else 'N/A'
+        receipt_date = pd.to_datetime(receipt_date_obj, dayfirst=True).strftime('%d/%m/%Y') if pd.notna(receipt_date_obj) else 'N/A'
         card_no = receipt_data.get('JobCardNumber', 'N/A')
         
         designs = json.loads(receipt_data.get('DesignDetailsWithWeightsJSON', '[]'))

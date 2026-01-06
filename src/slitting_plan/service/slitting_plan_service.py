@@ -95,11 +95,11 @@ class SlittingPlanService:
         if sales_order_df.empty:
             return pd.DataFrame()
 
-        sales_order_df["Order Entry Date"] = pd.to_datetime(sales_order_df["Order Entry Date"], errors='coerce')
+        sales_order_df["Order Entry Date"] = pd.to_datetime(sales_order_df["Order Entry Date"], errors='coerce', dayfirst=True)
 
         filtered_df = sales_order_df[
-            (sales_order_df["Order Entry Date"] >= pd.to_datetime(start_date))
-            & (sales_order_df["Order Entry Date"] <= pd.to_datetime(end_date))
+            (sales_order_df["Order Entry Date"] >= pd.to_datetime(start_date, dayfirst=True))
+            & (sales_order_df["Order Entry Date"] <= pd.to_datetime(end_date, dayfirst=True))
         ]
 
         if material_type != "All":

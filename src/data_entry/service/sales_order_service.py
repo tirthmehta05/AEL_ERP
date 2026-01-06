@@ -285,8 +285,7 @@ class SalesOrderService:
             if df.empty:
                 return []
 
-            # Convert order_date to datetime for filtering
-            df['order_date'] = pd.to_datetime(df['order_date'], errors='coerce')
+            df['order_date'] = pd.to_datetime(df['order_date'], errors='coerce', dayfirst=True)
 
             # Filter by date range if provided
             if start_date:
@@ -355,7 +354,7 @@ class SalesOrderService:
             if df.empty:
                 return []
 
-            df['order_date'] = pd.to_datetime(df['order_date'], errors='coerce').dt.date
+            df['order_date'] = pd.to_datetime(df['order_date'], errors='coerce', dayfirst=True).dt.date
             
             filtered_df = df[
                 (df['party_name'] == party_name) &
