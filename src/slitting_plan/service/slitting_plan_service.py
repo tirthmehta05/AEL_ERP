@@ -66,12 +66,24 @@ class SlittingPlanService:
 
     def _process_used_data(self, used_df: pd.DataFrame) -> pd.DataFrame:
         """Groups and aggregates the used raw material data."""
-        if used_df.empty:
+        if len(used_df) == 0:
             return pd.DataFrame(columns=["Coil Number", "used_weight"])
-            
+
+        # Check for required columns before using them
+        if "Weight" not in used_df.columns:
+            logger.error("'Weight' column not found in used data! Cannot process used weights.")
+            return pd.DataFrame(columns=["Coil Number", "used_weight"])
+        
+        if "Coil No" not in used_df.columns:
+            logger.error("'Coil No' column not found in used data! Cannot process used weights.")
+            return pd.DataFrame(columns=["Coil Number", "used_weight"])
+
         used_df["Weight"] = pd.to_numeric(used_df["Weight"], errors='coerce').fillna(0)
+        
         used_grouped = used_df.groupby("Coil No")["Weight"].sum().reset_index()
-        return used_grouped.rename(columns={"Coil No": "Coil Number", "Weight": "used_weight"})
+        renamed_df = used_grouped.rename(columns={"Coil No": "Coil Number", "Weight": "used_weight"})
+
+        return renamed_df
 
     def _calculate_available_weight(self, inward_grouped: pd.DataFrame, used_grouped: pd.DataFrame) -> pd.DataFrame:
         """Merges inward and used data to calculate available weight."""
@@ -82,6 +94,7 @@ class SlittingPlanService:
         available_coils_df = pd.merge(inward_grouped, used_grouped, on="Coil Number", how="left")
         available_coils_df["used_weight"] = available_coils_df["used_weight"].fillna(0)
         available_coils_df["available_weight"] = available_coils_df["total_weight"] - available_coils_df["used_weight"]
+        
         return available_coils_df
 
     def get_material_type_options(self) -> list:

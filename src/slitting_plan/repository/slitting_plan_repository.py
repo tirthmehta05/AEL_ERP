@@ -46,7 +46,7 @@ class SlittingPlanRepository:
         return df
 
     def fetch_used_data(self) -> pd.DataFrame:
-        return self.google_service.get_worksheet_data(self.spreadsheet_id, "Raw Material Used", header_row=2)
+        return self.google_service.get_worksheet_data(self.spreadsheet_id, "Raw Material Used", header_row=3)
 
     def fetch_sales_order_data(self) -> pd.DataFrame:
         return self.google_service.get_worksheet_data(self.spreadsheet_id, "Sales Order", header_row=1)

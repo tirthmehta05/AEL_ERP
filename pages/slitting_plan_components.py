@@ -54,7 +54,7 @@ def render_coil_selection(filtered_df):
         st.markdown("<div class='card'>", unsafe_allow_html=True)
         st.markdown("<div class='card-header'>Coil Selection</div>", unsafe_allow_html=True)
         coil_options = [f"{row['Coil Number']} - {row['available_weight']:.2f} kg" for index, row in filtered_df.iterrows()]
-        selected_coils = st.multiselect("Select Coils", options=coil_options)
+        selected_coils = st.multiselect("Select Coils", options=coil_options, key="slitting_plan_coil_selection")
         st.markdown("</div>", unsafe_allow_html=True)
     return selected_coils
 
@@ -134,7 +134,8 @@ def render_slitting_plan_editor_and_summary(service, filtered_df, selected_coils
                         plan_id = service.save_plan(plan_data)
                         if plan_id:
                             st.success(f"Successfully saved Slitting Plan with ID: **{plan_id}**")
-                            get_cached_available_coils.clear()
+                            st.session_state.cache_to_clear = {'page': 'slitting_plan'}
+                            st.session_state.form_submitted = True  # Set flag to reset form on next run
                             time.sleep(2)
                             st.rerun()
                         else:
