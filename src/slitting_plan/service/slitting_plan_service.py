@@ -98,8 +98,8 @@ class SlittingPlanService:
         sales_order_df["Order Entry Date"] = pd.to_datetime(sales_order_df["Order Entry Date"], errors='coerce', dayfirst=True)
 
         filtered_df = sales_order_df[
-            (sales_order_df["Order Entry Date"] >= pd.to_datetime(start_date, dayfirst=True))
-            & (sales_order_df["Order Entry Date"] <= pd.to_datetime(end_date, dayfirst=True))
+            (sales_order_df["Order Entry Date"].dt.date >= start_date)
+            & (sales_order_df["Order Entry Date"].dt.date <= end_date)
         ]
 
         if material_type != "All":
@@ -214,11 +214,11 @@ class SlittingPlanService:
                 for coil in plan_data['selected_coils']:
                     rm_used_request = RMUsedRequest(
                         rm_used_date=today,
-                        card_no='stock',
+                        card_no=f"SLITTING {plan_data['slitter']}",
                         coil_no=coil['Coil Number'],
                         weight=coil['available_weight'],
-                        machine='',
-                        remarks='Slitting'
+                        machine='SLITTING',
+                        remarks=plan_id
                     )
                     self.rm_used_service.create_rm_used(rm_used_request)
                 return plan_id
