@@ -290,8 +290,8 @@ class WeightReceiptService:
             # Use None for placeholder headers to ensure cells are truly empty if the sheet is new.
             headers = [
                 "USERID", "FG DATE", "Job Card", "FG Qty", # Columns A, B, C, D
-                None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, # 19 placeholders for E-W
-                "Weight Receipt Number" # Column X
+                None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, # 18 placeholders for E-V
+                "Weight Receipt Number" # Column W
             ]
             
             spreadsheet = self.google_service.client.open_by_key(self.spreadsheet_id)
@@ -310,7 +310,7 @@ class WeightReceiptService:
             # Use None for placeholder values to avoid overwriting formulas in the new row.
             row_data = [
                 user_id, fg_date, job_card, fg_qty,
-                None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+                None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None,
                 weight_receipt_number
             ]
 
