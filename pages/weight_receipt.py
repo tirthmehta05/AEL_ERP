@@ -144,55 +144,98 @@ def render_weight_receipt_form():
             st.markdown("---")
             st.markdown(f"<h5>Details for {selected_jc['job_card_number']}</h5>", unsafe_allow_html=True)
             
-            # --- Set Selection UI ---
-            total_sets_in_jc = int(selected_jc.get('number_of_cores', 0))
-            completed_sets = services.weight_receipt.get_receipted_sets_for_job_card(selected_jc_str)
-            remaining_sets = total_sets_in_jc - completed_sets
+            # --- Get Order Type ---
+            order_type = services.weight_receipt.get_order_type_for_job_card(selected_jc_str)
+            
+            # Display order type badge
+            badge_color = "🟢" if order_type == "CORE_BUILDING" else ("🟡" if order_type == "LOOSE_STRIPS" else "🔵")
+            st.markdown(f"**Order Type:** {badge_color} {order_type.replace('_', ' ').title()}")
+            
+            # --- Set Selection UI (varies by order type) ---
+            if order_type == "CORE_BUILDING":
+                # Original set-based logic for core building orders
+                total_sets_in_jc = int(selected_jc.get('number_of_cores', 0))
+                completed_sets = services.weight_receipt.get_receipted_sets_for_job_card(selected_jc_str)
+                remaining_sets = total_sets_in_jc - completed_sets
 
-            set_col1, set_col2, set_col3 = st.columns(3)
-            set_col1.metric("Total Sets in Job Card", f"{total_sets_in_jc}")
-            set_col2.metric("Completed Sets", f"{completed_sets}")
-            set_col3.metric("Remaining Sets", f"{remaining_sets}")
+                set_col1, set_col2, set_col3 = st.columns(3)
+                set_col1.metric("Total Sets in Job Card", f"{total_sets_in_jc}")
+                set_col2.metric("Completed Sets", f"{completed_sets}")
+                set_col3.metric("Remaining Sets", f"{remaining_sets}")
 
-            if remaining_sets <= 0:
-                st.warning("All sets for this Job Card have already been receipted.", icon="⚠️")
-                st.stop()
+                if remaining_sets <= 0:
+                    st.warning("All sets for this Job Card have already been receipted.", icon="⚠️")
+                    st.stop()
 
-            # --- Number of sets for this receipt ---
-            sets_for_this_receipt_val = st.session_state.get('wr_sets_for_receipt', min(1, remaining_sets))
-            if sets_for_this_receipt_val > remaining_sets:
-                st.warning(f"Draft has {sets_for_this_receipt_val} sets, but only {remaining_sets} remain. Please adjust or clear draft.", icon="⚠️")
-                if st.button("Reset Sets and Clear Draft"):
-                    st.session_state.wr_sets_for_receipt = remaining_sets
+                # --- Number of sets for this receipt ---
+                sets_for_this_receipt_val = st.session_state.get('wr_sets_for_receipt', min(1, remaining_sets))
+                if sets_for_this_receipt_val > remaining_sets:
+                    st.warning(f"Draft has {sets_for_this_receipt_val} sets, but only {remaining_sets} remain. Please adjust or clear draft.", icon="⚠️")
+                    if st.button("Reset Sets and Clear Draft"):
+                        st.session_state.wr_sets_for_receipt = remaining_sets
+                        st.session_state.wr_weights = {}
+                        st.session_state.wr_remarks = {}
+                        st.session_state.wr_total_weight = 0.0
+                        st.session_state.wr_draft_data = {}
+                        st.session_state.last_selected_index = None
+                        services.weight_receipt.clear_weight_receipt_drafts(selected_jc_str)
+                        st.toast("Sets reset and draft cleared.", icon="🗑️")
+                        st.rerun()
+                    sets_for_this_receipt_val = remaining_sets
+
+                sets_for_this_receipt = st.number_input(
+                    "Number of Sets for this Receipt",
+                    min_value=1,
+                    max_value=remaining_sets,
+                    value=sets_for_this_receipt_val,
+                    step=1,
+                    key='wr_sets_for_receipt_input' 
+                )
+
+                if 'wr_sets_for_receipt' in st.session_state and st.session_state.wr_sets_for_receipt != sets_for_this_receipt:
                     st.session_state.wr_weights = {}
                     st.session_state.wr_remarks = {}
                     st.session_state.wr_total_weight = 0.0
                     st.session_state.wr_draft_data = {}
                     st.session_state.last_selected_index = None
                     services.weight_receipt.clear_weight_receipt_drafts(selected_jc_str)
-                    st.toast("Sets reset and draft cleared.", icon="🗑️")
-                    st.rerun()
-                sets_for_this_receipt_val = remaining_sets
+                    st.toast("Number of sets changed. Previous draft cleared.", icon="🗑️")
 
-            sets_for_this_receipt = st.number_input(
-                "Number of Sets for this Receipt",
-                min_value=1,
-                max_value=remaining_sets,
-                value=sets_for_this_receipt_val,
-                step=1,
-                key='wr_sets_for_receipt_input' 
-            )
-
-            if 'wr_sets_for_receipt' in st.session_state and st.session_state.wr_sets_for_receipt != sets_for_this_receipt:
-                st.session_state.wr_weights = {}
-                st.session_state.wr_remarks = {}
-                st.session_state.wr_total_weight = 0.0
-                st.session_state.wr_draft_data = {}
-                st.session_state.last_selected_index = None
-                services.weight_receipt.clear_weight_receipt_drafts(selected_jc_str)
-                st.toast("Number of sets changed. Previous draft cleared.", icon="🗑️")
-
-            st.session_state.wr_sets_for_receipt = sets_for_this_receipt
+                st.session_state.wr_sets_for_receipt = sets_for_this_receipt
+            
+            else:
+                # Weight-based logic for loose strips and EI ready orders
+                # Calculate total expected weight from designs
+                original_designs = json.loads(selected_jc.get('designs_json', '[]'))
+                total_expected_weight = sum(d.get('weight', 0) for d in original_designs)
+                
+                # Get cumulative weight already receipted
+                cumulative_weight = services.weight_receipt.get_cumulative_weight_for_job_card(selected_jc_str)
+                remaining_weight = total_expected_weight - cumulative_weight
+                
+                weight_col1, weight_col2, weight_col3 = st.columns(3)
+                weight_col1.metric("Total Expected Weight", f"{total_expected_weight:.2f} kg")
+                weight_col2.metric("Cumulative Receipted Weight", f"{cumulative_weight:.2f} kg")
+                weight_col3.metric("Remaining Weight", f"{remaining_weight:.2f} kg")
+                
+                if remaining_weight <= 0:
+                    st.success("✅ All weight for this Job Card has been receipted.", icon="✅")
+                    st.stop()
+                
+                # Still track sets for record-keeping, but not enforced
+                total_sets_in_jc = int(selected_jc.get('number_of_cores', 1))  # Default to 1 if 0
+                completed_sets = services.weight_receipt.get_receipted_sets_for_job_card(selected_jc_str)
+                
+                sets_for_this_receipt_val = st.session_state.get('wr_sets_for_receipt', 1)
+                sets_for_this_receipt = st.number_input(
+                    "Number of Sets for this Receipt (for tracking only)",
+                    min_value=1,
+                    value=sets_for_this_receipt_val,
+                    step=1,
+                    key='wr_sets_for_receipt_input',
+                    help="Sets are tracked but not enforced for partial dispatch orders"
+                )
+                st.session_state.wr_sets_for_receipt = sets_for_this_receipt
 
             original_designs = json.loads(selected_jc.get('designs_json', '[]'))
             designs = [] 
@@ -225,7 +268,11 @@ def render_weight_receipt_form():
             st.markdown("---")
 
             st.markdown("<h6>Design Details (Scaled for this Receipt)</h6>", unsafe_allow_html=True)
-            weight_entry_type = st.radio("Weight Entry Type", ["Loose Strips", "Building Core"], index=0, key="weight_entry_type")
+            
+            # Auto-determine weight entry type from order type
+            # Core Building orders use "Building Core" mode, others use "Loose Strips" mode
+            weight_entry_type = "Building Core" if order_type == "CORE_BUILDING" else "Loose Strips"
+            
             deduction = st.number_input("Deduction (kg)", value=0.0, step=0.1, key="deduction_input")
             
             drafts = st.session_state.get('wr_draft_data', {})
@@ -321,6 +368,20 @@ def render_weight_receipt_form():
                         weighed_design_data['remark'] = row["Remark"]
                         weighed_designs.append(WeighedDesignDetail(**weighed_design_data))
 
+                    # Validate cumulative weight for partial dispatch orders
+                    if order_type in ["LOOSE_STRIPS", "EI_READY"]:
+                        original_designs = json.loads(selected_jc.get('designs_json', '[]'))
+                        total_expected_weight = sum(d.get('weight', 0) for d in original_designs)
+                        cumulative_weight = services.weight_receipt.get_cumulative_weight_for_job_card(selected_jc_str)
+                        new_cumulative_weight = cumulative_weight + (actual_total_weight - deduction)
+                        
+                        if new_cumulative_weight > total_expected_weight:
+                            st.error(
+                                f"❌ Cumulative weight ({new_cumulative_weight:.2f} kg) would exceed total job card weight ({total_expected_weight:.2f} kg). "
+                                f"Remaining: {total_expected_weight - cumulative_weight:.2f} kg"
+                            )
+                            st.stop()
+
                     request = WeightReceiptRequest(
                         weight_receipt_number=wr_number,
                         receipt_date=receipt_date,
@@ -333,6 +394,7 @@ def render_weight_receipt_form():
                         weight_entry_type="Loose Strips",
                         total_weight=actual_total_weight,
                         deduction=deduction,
+                        order_type=order_type
                     )
 
                     with st.spinner("Saving Weight Receipt..."):
@@ -429,6 +491,20 @@ def render_weight_receipt_form():
                         weighed_design_data['remark'] = st.session_state.get('wr_core_remark', '')
                         weighed_designs.append(WeighedDesignDetail(**weighed_design_data))
 
+                    # Validate cumulative weight for partial dispatch orders
+                    if order_type in ["LOOSE_STRIPS", "EI_READY"]:
+                        original_designs = json.loads(selected_jc.get('designs_json', '[]'))
+                        total_expected_weight = sum(d.get('weight', 0) for d in original_designs)
+                        cumulative_weight = services.weight_receipt.get_cumulative_weight_for_job_card(selected_jc_str)
+                        new_cumulative_weight = cumulative_weight + (actual_total_weight - deduction)
+                        
+                        if new_cumulative_weight > total_expected_weight:
+                            st.error(
+                                f"❌ Cumulative weight ({new_cumulative_weight:.2f} kg) would exceed total job card weight ({total_expected_weight:.2f} kg). "
+                                f"Remaining: {total_expected_weight - cumulative_weight:.2f} kg"
+                            )
+                            st.stop()
+
                     request = WeightReceiptRequest(
                         weight_receipt_number=wr_number,
                         receipt_date=receipt_date,
@@ -441,6 +517,7 @@ def render_weight_receipt_form():
                         weight_entry_type="Building Core",
                         total_weight=actual_total_weight,
                         deduction=deduction,
+                        order_type=order_type
                     )
                     
                     with st.spinner("Saving Weight Receipt..."):

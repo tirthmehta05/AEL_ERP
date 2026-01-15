@@ -104,10 +104,15 @@ def render_header_fields(dropdown_data):
         st.selectbox("Type", options=material_type_options, key="so_type", accept_new_options=True)
     with col3:
         st.text_input("Job Card Number", value=st.session_state.so_job_card_number, disabled=True)
-        st.number_input("Number of Cores", min_value=1, step=1, key="so_num_cores")
+        st.number_input("Number of Cores", min_value=0, step=1, key="so_num_cores")
         st.number_input("Header Core Stack (mm)", min_value=0.0, step=1.0, format="%.1f", key="so_header_core_stack")
         st.text_input("Grade (Optional)", key="so_grade")
         st.selectbox("Coating (Optional)", options=dropdown_data.coatings, index=None, placeholder="Select a Coating", key="so_coating")
+        
+        # Display order type badge
+        order_type = "EI Ready" if st.session_state.get("so_is_ready_entry") else ("Loose Strips" if st.session_state.get("so_num_cores", 1) == 0 else "Core Building")
+        badge_color = "🟢" if order_type == "Core Building" else ("🟡" if order_type == "Loose Strips" else "🔵")
+        st.markdown(f"**Order Type:** {badge_color} {order_type}")
 
 def render_design_entry_fields():
     """Renders the fields for adding a single design detail."""
@@ -120,7 +125,7 @@ def render_design_entry_fields():
         st.number_input("Set", min_value=1, step=1, key="design_sets")
     with col2:
         st.number_input("Length (mm)", min_value=0.0, step=1.0, format="%.2f", key="design_length")
-        is_loose = st.checkbox("Loose Core", key="design_is_loose")
+        is_loose = st.checkbox("Calculate from Weight", key="design_is_loose")
     with col3:
         st.selectbox("Hole", options=["Plain", "Centre", "Both Side", "Side", "3-Hole", "5-Hole", "Daimond", "V-Noch"], key="design_hole")
         st.number_input("Thickness (mm)", min_value=0.0, step=0.01, format="%.2f", key="design_thk")
