@@ -136,11 +136,15 @@ class SalesOrderService:
                     logger.error(f"Could not determine runChildFlow status due to error: {e}. Defaulting to False.")
                     request.run_child_flow = False
 
+            # Determine order type before saving
+            if not request.order_type:
+                request.order_type = request.determine_order_type()
+
             worksheet_name_jc = "Sales Order-JC"
             headers_jc = [
                 "order_date", "po_no", "party_name", "delivery_date", "job_card_number",
                 "hole_size", "number_of_cores", "rate_per_kg", "header_core_stack", "coating", "designs_json",
-                "status"
+                "status", "order_type"
             ]
             self.google_service.ensure_worksheet_with_headers(self.spreadsheet_id, worksheet_name_jc, headers_jc)
 
@@ -152,7 +156,7 @@ class SalesOrderService:
                 request.order_date.strftime("%d/%m/%Y"), request.po_no, request.party_name,
                 request.delivery_date.strftime("%d/%m/%Y"), request.job_card_number,
                 request.hole_size, request.number_of_cores, request.rate_per_kg,
-                request.header_core_stack, request.coating, designs_json, status
+                request.header_core_stack, request.coating, designs_json, status, request.order_type
             ]
 
             success_jc = self.google_service.append_data(self.spreadsheet_id, worksheet_name_jc, [data_row_jc])
@@ -285,6 +289,7 @@ class SalesOrderService:
             if df.empty:
                 return []
 
+            # Convert order_date to datetime for filtering
             df['order_date'] = pd.to_datetime(df['order_date'], errors='coerce', dayfirst=True)
 
             # Filter by date range if provided

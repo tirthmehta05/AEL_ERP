@@ -164,6 +164,76 @@ class WeightReceiptService:
         except Exception as e:
             logger.error(f"Error calculating receipted sets for JC {job_card_number}: {e}")
             return 0
+    
+    def get_cumulative_weight_for_job_card(self, job_card_number: str) -> float:
+        """
+        Calculates the total cumulative weight already receipted for a given job card.
+        This is used for partial dispatch orders (loose strips and EI ready).
+        """
+        try:
+            # Query Finished Goods Transfer sheet
+            df = self.google_service.get_worksheet_data(self.spreadsheet_id, "Finished Goods Transfer", header_row=2)
+            if df is None or df.empty or 'Job Card' not in df.columns or 'FG Qty' not in df.columns:
+                return 0.0
+            
+            # Filter for the specific job card
+            jc_entries = df[df['Job Card'] == job_card_number]
+            if jc_entries.empty:
+                return 0.0
+            
+            # Sum all FG Qty entries
+            cumulative_weight = pd.to_numeric(jc_entries['FG Qty'], errors='coerce').sum()
+            return float(cumulative_weight) if not pd.isna(cumulative_weight) else 0.0
+        except Exception as e:
+            logger.error(f"Error calculating cumulative weight for JC {job_card_number}: {e}")
+            return 0.0
+    
+    def get_order_type_for_job_card(self, job_card_number: str) -> str:
+        """
+        Retrieves the order type for a given job card from the Sales Order-JC sheet.
+        If order_type is missing, infers it from number_of_cores and designs.
+        Returns "CORE_BUILDING" as safe default.
+        """
+        try:
+            df = self.google_service.get_worksheet_data(self.spreadsheet_id, "Sales Order-JC", header_row=1)
+            if df is None or df.empty or 'job_card_number' not in df.columns:
+                return "CORE_BUILDING"
+            
+            # Find the job card
+            jc_row = df[df['job_card_number'] == job_card_number]
+            if jc_row.empty:
+                return "CORE_BUILDING"
+            
+            # Check if order_type column exists and has a value
+            if 'order_type' in df.columns:
+                order_type = jc_row.iloc[0]['order_type']
+                if pd.notna(order_type) and order_type in ["CORE_BUILDING", "LOOSE_STRIPS", "EI_READY"]:
+                    return str(order_type)
+            
+            # Fallback: infer from number_of_cores and designs
+            # Check designs for "Ready Entry"
+            if 'designs_json' in df.columns:
+                designs_json = jc_row.iloc[0].get('designs_json')
+                if pd.notna(designs_json):
+                    try:
+                        designs = json.loads(designs_json)
+                        for design in designs:
+                            if design.get('hole') == "Ready Entry":
+                                return "EI_READY"
+                    except:
+                        pass
+            
+            # Check number_of_cores
+            if 'number_of_cores' in df.columns:
+                num_cores = pd.to_numeric(jc_row.iloc[0].get('number_of_cores'), errors='coerce')
+                if pd.notna(num_cores) and num_cores == 0:
+                    return "LOOSE_STRIPS"
+            
+            # Default to CORE_BUILDING
+            return "CORE_BUILDING"
+        except Exception as e:
+            logger.error(f"Error getting order type for JC {job_card_number}: {e}")
+            return "CORE_BUILDING"
 
     def save_weight_receipt_draft(self, job_card: str, design_index: int, weight: float, remark: str, sets_for_this_receipt: int) -> bool:
         """Saves a single design's weighed data to a draft sheet."""

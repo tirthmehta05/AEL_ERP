@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Literal
 from datetime import date
 
 class DesignDetail(BaseModel):
@@ -38,6 +38,26 @@ class SalesOrderRequest(BaseModel):
     designs: List[DesignDetail]
     assigned_coils: Optional[List[AssignedCoil]] = None
     run_child_flow: Optional[bool] = None
+    order_type: Optional[Literal["CORE_BUILDING", "LOOSE_STRIPS", "EI_READY"]] = None
+    
+    def determine_order_type(self) -> str:
+        """Determines the order type based on design details and number of cores.
+        
+        Returns:
+            str: One of "EI_READY", "LOOSE_STRIPS", or "CORE_BUILDING"
+        """
+        # Check if any design is an EI Ready entry (takes precedence)
+        if self.designs:
+            for design in self.designs:
+                if design.hole == "Ready Entry":
+                    return "EI_READY"
+        
+        # Check if it's a loose strips order (number_of_cores = 0)
+        if self.number_of_cores == 0:
+            return "LOOSE_STRIPS"
+        
+        # Default to core building
+        return "CORE_BUILDING"
 
 class SalesOrderDropdownData(BaseModel):
     """Model for dropdown data for the Sales Order form."""

@@ -252,9 +252,9 @@ def render_job_card_tab(services: AppServices):
     # Date range filter
     col1, col2 = st.columns(2)
     with col1:
-        start_date = st.date_input("Start Date", datetime.now() - timedelta(days=30))
+        start_date = st.date_input("Start Date", datetime.now() - timedelta(days=30), key="job_card_start_date")
     with col2:
-        end_date = st.date_input("End Date", datetime.now())
+        end_date = st.date_input("End Date", datetime.now(), key="job_card_end_date")
 
     job_cards_data = get_job_cards(services, start_date, end_date)
 

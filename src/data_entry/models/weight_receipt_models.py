@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from datetime import date
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Literal
 
 class WeighedDesignDetail(BaseModel):
     """Model for a single design detail with its actual weight."""
@@ -24,6 +24,7 @@ class WeightReceiptRequest(BaseModel):
     weight_entry_type: str = "Loose Strips"
     total_weight: Optional[float] = None
     deduction: float = 0.0
+    order_type: Optional[Literal["CORE_BUILDING", "LOOSE_STRIPS", "EI_READY"]] = None
 
 class WeightReceiptRecord(BaseModel):
     """Record model for Weight Receipt data."""
