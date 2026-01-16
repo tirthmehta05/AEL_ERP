@@ -376,11 +376,11 @@ def render_weight_receipt_form():
                         new_cumulative_weight = cumulative_weight + (actual_total_weight - deduction)
                         
                         if new_cumulative_weight > total_expected_weight:
-                            st.error(
-                                f"❌ Cumulative weight ({new_cumulative_weight:.2f} kg) would exceed total job card weight ({total_expected_weight:.2f} kg). "
-                                f"Remaining: {total_expected_weight - cumulative_weight:.2f} kg"
+                            st.warning(
+                                f"⚠️ Cumulative weight ({new_cumulative_weight:.2f} kg) exceeds total job card weight ({total_expected_weight:.2f} kg). "
+                                f"Excess: {new_cumulative_weight - total_expected_weight:.2f} kg",
+                                icon="⚠️"
                             )
-                            st.stop()
 
                     request = WeightReceiptRequest(
                         weight_receipt_number=wr_number,
@@ -499,11 +499,11 @@ def render_weight_receipt_form():
                         new_cumulative_weight = cumulative_weight + (actual_total_weight - deduction)
                         
                         if new_cumulative_weight > total_expected_weight:
-                            st.error(
-                                f"❌ Cumulative weight ({new_cumulative_weight:.2f} kg) would exceed total job card weight ({total_expected_weight:.2f} kg). "
-                                f"Remaining: {total_expected_weight - cumulative_weight:.2f} kg"
+                            st.warning(
+                                f"⚠️ Cumulative weight ({new_cumulative_weight:.2f} kg) exceeds total job card weight ({total_expected_weight:.2f} kg). "
+                                f"Excess: {new_cumulative_weight - total_expected_weight:.2f} kg",
+                                icon="⚠️"
                             )
-                            st.stop()
 
                     request = WeightReceiptRequest(
                         weight_receipt_number=wr_number,
