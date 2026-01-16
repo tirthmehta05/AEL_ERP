@@ -6,6 +6,7 @@ from datetime import date, datetime
 import json
 import pandas as pd
 import requests
+import gspread
 from config import settings
 from src.shared.integrations.google_drive_service import google_drive_service
 
@@ -357,23 +358,61 @@ class WeightReceiptService:
         try:
             sheet_name = "Finished Goods Transfer"
             
-            # Use None for placeholder headers to ensure cells are truly empty if the sheet is new.
-            headers = [
-                "USERID", "FG DATE", "Job Card", "FG Qty", # Columns A, B, C, D
-                None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, # 18 placeholders for E-V
-                "Weight Receipt Number" # Column W
-            ]
+            # Ensure the worksheet exists and is properly initialized
+            if not self.google_service.client:
+                raise Exception("Google Drive client not initialized")
             
-            spreadsheet = self.google_service.client.open_by_key(self.spreadsheet_id)
+            spreadsheet = self.google_service._execute_with_retry(
+                self.google_service.client.open_by_key, 
+                self.spreadsheet_id
+            )
+            
+            # Try to get the worksheet, create if it doesn't exist
             try:
-                worksheet = spreadsheet.worksheet(sheet_name)
-                # This check is safe: it only writes headers if the sheet is brand new and A2 is empty.
-                if not worksheet.acell('A2').value:
-                    worksheet.update('A2', [headers])
-            except self.google_service.client.worksheet.exceptions.WorksheetNotFound:
-                worksheet = spreadsheet.add_worksheet(title=sheet_name, rows=100, cols=30) # cols=30 to allow for growth
-                # Add headers to the second row
-                worksheet.update('A2', [headers])
+                worksheet = self.google_service._execute_with_retry(
+                    spreadsheet.worksheet, 
+                    sheet_name
+                )
+                
+                # Check if headers exist on row 2, add if missing
+                cell_value = self.google_service._execute_with_retry(
+                    worksheet.acell, 
+                    'A2'
+                ).value
+                
+                if not cell_value:
+                    # Headers don't exist, add them to row 2
+                    headers = [
+                        "USERID", "FG DATE", "Job Card", "FG Qty",  # Columns A, B, C, D
+                        None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None,  # 18 placeholders for E-V
+                        "Weight Receipt Number"  # Column W
+                    ]
+                    self.google_service._execute_with_retry(
+                        worksheet.update, 
+                        'A2', 
+                        [headers]
+                    )
+                    
+            except gspread.exceptions.WorksheetNotFound:
+                # Worksheet doesn't exist, create it
+                worksheet = self.google_service._execute_with_retry(
+                    spreadsheet.add_worksheet, 
+                    title=sheet_name, 
+                    rows=100, 
+                    cols=30
+                )
+                
+                # Add headers to row 2
+                headers = [
+                    "USERID", "FG DATE", "Job Card", "FG Qty",  # Columns A, B, C, D
+                    None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None,  # 18 placeholders for E-V
+                    "Weight Receipt Number"  # Column W
+                ]
+                self.google_service._execute_with_retry(
+                    worksheet.update, 
+                    'A2', 
+                    [headers]
+                )
 
             fg_date = datetime.now().strftime("%Y-%m-%d")
             
@@ -384,7 +423,7 @@ class WeightReceiptService:
                 weight_receipt_number
             ]
 
-            # Use the service's insert_row_before_last method, as confirmed by the user.
+            # Use the service's insert_row_before_last method which handles retries
             success = self.google_service.insert_row_before_last(self.spreadsheet_id, sheet_name, [row_data])
             
             if success:
