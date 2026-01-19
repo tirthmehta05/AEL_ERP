@@ -46,10 +46,33 @@ def render_raw_material_used_form() -> None:
         key="coil_no"
     )
 
-    # --- Step 2: Display Available Weight (Outside the form) ---
+    # --- Step 2: Display Coil Information (Outside the form) ---
     if st.session_state.coil_no:
-        st.session_state.available_weight = data_service.get_available_weight(st.session_state.coil_no)
-        st.info(f"Available weight for coil **{st.session_state.coil_no}**: **{st.session_state.available_weight:.2f} kg**")
+        # Single optimized call to get all coil information
+        coil_info = data_service.get_coil_info(st.session_state.coil_no)
+        
+        if coil_info:
+            # Store available weight in session state for validation
+            st.session_state.available_weight = coil_info['available_weight']
+            
+            # Display coil specifications in a clean column layout
+            st.markdown("**Coil Information:**")
+            col1, col2, col3, col4, col5 = st.columns(5)
+            with col1:
+                st.metric("Available Weight", f"{coil_info['available_weight']:.2f} kg")
+            with col2:
+                st.metric("Width", f"{coil_info['width']} mm" if coil_info['width'] != "N/A" else "N/A")
+            with col3:
+                st.metric("Thickness", f"{coil_info['thickness']} mm" if coil_info['thickness'] != "N/A" else "N/A")
+            with col4:
+                st.metric("Grade", coil_info['grade'])
+            with col5:
+                st.metric("Coating", coil_info['coating'])
+        else:
+            st.warning(f"Could not retrieve information for coil **{st.session_state.coil_no}**")
+            st.session_state.available_weight = 0.0
+
+
     
     # --- Step 3: The rest of the form for data entry ---
     with st.form("raw_material_used_form", clear_on_submit=False):

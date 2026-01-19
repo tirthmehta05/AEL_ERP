@@ -128,7 +128,12 @@ class RMUsedService:
             return DropdownData()
 
     def get_available_weight(self, coil_no: str) -> float:
-        """Calculate the available weight for a given coil number."""
+        """
+        Calculate the available weight for a given coil number.
+        
+        Note: For better performance, use get_coil_info() which returns
+        both weight and specifications in a single call.
+        """
         try:
             inward_df = self._get_inward_data()
             used_df = self._get_used_data()
@@ -154,6 +159,55 @@ class RMUsedService:
         except Exception as e:
             logger.error(f"Error getting available weight for {coil_no}: {str(e)}")
             return 0.0
+
+    def get_coil_info(self, coil_no: str) -> Optional[Dict[str, Any]]:
+        """
+        Get complete coil information including specifications and available weight.
+        This method is optimized to fetch all data in a single pass through the DataFrames.
+        
+        Returns:
+            Dictionary with width, thickness, grade, coating, and available_weight,
+            or None if coil not found.
+        """
+        try:
+            inward_df = self._get_inward_data()
+            used_df = self._get_used_data()
+
+            if inward_df is None or inward_df.empty:
+                return None
+
+            # Get coil data from inward sheet (single DataFrame filter)
+            inward_coil_data = inward_df[inward_df["Coil Number"] == coil_no]
+            if inward_coil_data.empty:
+                return None
+
+            # Get the first row for specifications (all rows for same coil have same specs)
+            coil_row = inward_coil_data.iloc[0]
+            
+            # Calculate total weight
+            total_weight = pd.to_numeric(inward_coil_data["Coil Weight"], errors='coerce').sum()
+
+            # Calculate used weight
+            used_weight = 0.0
+            if used_df is not None and not used_df.empty:
+                used_coil_data = used_df[used_df["Coil No"] == coil_no]
+                if not used_coil_data.empty:
+                    used_weight = pd.to_numeric(used_coil_data["Weight"], errors='coerce').sum()
+            
+            # Calculate available weight
+            available_weight = total_weight - used_weight
+
+            return {
+                "width": coil_row.get("Width", "N/A"),
+                "thickness": coil_row.get("Thk", "N/A"),
+                "grade": coil_row.get("Grade", "N/A"),
+                "coating": coil_row.get("Coating", "N/A"),
+                "available_weight": available_weight,
+            }
+
+        except Exception as e:
+            logger.error(f"Error getting coil info for {coil_no}: {str(e)}")
+            return None
 
     def get_existing_records(self, limit: int = 5) -> List[Dict[str, Any]]:
         """Get existing RM Used records"""
