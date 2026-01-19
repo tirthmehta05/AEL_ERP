@@ -259,9 +259,14 @@ def render_weight_receipt_form():
             
             wr_col1, wr_col2 = st.columns(2)
             with wr_col1:
-                if 'wr_number_input' not in st.session_state:
-                    st.session_state.wr_number_input = services.weight_receipt.generate_weight_receipt_number()
-                wr_number = st.text_input("Weight Receipt Number", value=st.session_state.wr_number_input)
+                # Don't pre-generate the number to avoid race conditions
+                # Number will be generated at save time
+                wr_number = st.text_input(
+                    "Weight Receipt Number", 
+                    value="Auto-generated on save",
+                    disabled=True,
+                    help="Weight receipt number will be automatically generated when you save"
+                )
             with wr_col2:
                 receipt_date = st.date_input("Receipt Date", datetime.now())
 
@@ -382,8 +387,11 @@ def render_weight_receipt_form():
                                 icon="⚠️"
                             )
 
+                    # Generate weight receipt number at save time to prevent race conditions
+                    generated_wr_number = services.weight_receipt.generate_weight_receipt_number()
+
                     request = WeightReceiptRequest(
-                        weight_receipt_number=wr_number,
+                        weight_receipt_number=generated_wr_number,
                         receipt_date=receipt_date,
                         job_card_number=selected_jc_str,
                         party_name=selected_party,
@@ -400,13 +408,13 @@ def render_weight_receipt_form():
                     with st.spinner("Saving Weight Receipt..."):
                         success = services.weight_receipt.save_weight_receipt(request)
                         if success:
-                            st.success(f"Weight Receipt {wr_number} saved successfully!")
+                            st.success(f"Weight Receipt {generated_wr_number} saved successfully!")
                             user_id = st.session_state.get('user_info', {}).get('username', 'SYSTEM')
                             services.weight_receipt.save_to_finished_goods(
                                 user_id=user_id,
                                 job_card=selected_jc['job_card_number'],
                                 fg_qty=actual_total_weight - deduction,
-                                weight_receipt_number=wr_number
+                                weight_receipt_number=generated_wr_number
                             )
                             services.weight_receipt.clear_weight_receipt_drafts(selected_jc['job_card_number'])
                             st.session_state.wr_weights = {}
@@ -414,8 +422,6 @@ def render_weight_receipt_form():
                             st.session_state.wr_total_weight = 0.0
                             st.session_state.wr_draft_data = {}
                             st.session_state.last_selected_index = None
-                            if 'wr_number_input' in st.session_state:
-                                del st.session_state['wr_number_input']
                             
                             time.sleep(2)
                             st.rerun()
@@ -505,8 +511,11 @@ def render_weight_receipt_form():
                                 icon="⚠️"
                             )
 
+                    # Generate weight receipt number at save time to prevent race conditions
+                    generated_wr_number = services.weight_receipt.generate_weight_receipt_number()
+
                     request = WeightReceiptRequest(
-                        weight_receipt_number=wr_number,
+                        weight_receipt_number=generated_wr_number,
                         receipt_date=receipt_date,
                         job_card_number=selected_jc_str,
                         party_name=selected_party,
@@ -523,13 +532,13 @@ def render_weight_receipt_form():
                     with st.spinner("Saving Weight Receipt..."):
                         success = services.weight_receipt.save_weight_receipt(request)
                         if success:
-                            st.success(f"Weight Receipt {wr_number} saved successfully!")
+                            st.success(f"Weight Receipt {generated_wr_number} saved successfully!")
                             user_id = st.session_state.get('user_info', {}).get('username', 'SYSTEM')
                             services.weight_receipt.save_to_finished_goods(
                                 user_id=user_id,
                                 job_card=selected_jc['job_card_number'],
                                 fg_qty=actual_total_weight - deduction,
-                                weight_receipt_number=wr_number
+                                weight_receipt_number=generated_wr_number
                             )
                             services.weight_receipt.clear_weight_receipt_drafts(selected_jc['job_card_number'])
                             st.session_state.wr_weights = {}
@@ -537,8 +546,6 @@ def render_weight_receipt_form():
                             st.session_state.wr_total_weight = 0.0
                             st.session_state.wr_draft_data = {}
                             st.session_state.last_selected_index = None
-                            if 'wr_number_input' in st.session_state:
-                                del st.session_state['wr_number_input']
                             time.sleep(2)
                             st.rerun()
                         else:
