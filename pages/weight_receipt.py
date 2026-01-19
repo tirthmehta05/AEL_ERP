@@ -28,6 +28,8 @@ def initialize_wr_session_state():
         st.session_state.current_jc_for_wr = None
     if 'wr_core_remark' not in st.session_state:
         st.session_state.wr_core_remark = ""
+    if 'wr_save_locks' not in st.session_state:
+        st.session_state.wr_save_locks = {}
     
 
 def _render_designs_grid(designs, drafts, editable=True):
@@ -358,6 +360,15 @@ def render_weight_receipt_form():
                 st.markdown("---")
 
                 if st.button("Save Weight Receipt", key="save_wr_button_loose"):
+                    # Check for existing save lock
+                    current_time = time.time()
+                    last_save_time = st.session_state.wr_save_locks.get(selected_jc_str, 0)
+                    if current_time - last_save_time < 30: # 30 seconds lock
+                        st.warning("Save already in progress. Please wait...", icon="⏳")
+                        st.stop()
+                    
+                    st.session_state.wr_save_locks[selected_jc_str] = current_time
+                    
                     weighed_designs = []
                     actual_total_weight = 0.0
                     for i, row in edited_df.iterrows():
@@ -423,10 +434,17 @@ def render_weight_receipt_form():
                             st.session_state.wr_draft_data = {}
                             st.session_state.last_selected_index = None
                             
+                            # Clear lock on success
+                            if selected_jc_str in st.session_state.wr_save_locks:
+                                del st.session_state.wr_save_locks[selected_jc_str]
+
                             time.sleep(2)
                             st.rerun()
                         else:
                             st.error("Failed to save Weight Receipt.")
+                            # Clear lock on failure
+                            if selected_jc_str in st.session_state.wr_save_locks:
+                                del st.session_state.wr_save_locks[selected_jc_str]
             
             elif weight_entry_type == "Building Core":
                 _render_designs_grid(designs, drafts, editable=False)
@@ -484,6 +502,15 @@ def render_weight_receipt_form():
                         st.rerun()
                 st.markdown("---")
                 if st.button("Save Weight Receipt", key="save_wr_button_core"):
+                    # Check for existing save lock
+                    current_time = time.time()
+                    last_save_time = st.session_state.wr_save_locks.get(selected_jc_str, 0)
+                    if current_time - last_save_time < 30: # 30 seconds lock
+                        st.warning("Save already in progress. Please wait...", icon="⏳")
+                        st.stop()
+                    
+                    st.session_state.wr_save_locks[selected_jc_str] = current_time
+
                     actual_total_weight = st.session_state.get('wr_total_weight', 0.0)
 
                     if actual_total_weight <= 0:
@@ -546,6 +573,11 @@ def render_weight_receipt_form():
                             st.session_state.wr_total_weight = 0.0
                             st.session_state.wr_draft_data = {}
                             st.session_state.last_selected_index = None
+                            
+                            # Clear lock on success
+                            if selected_jc_str in st.session_state.wr_save_locks:
+                                del st.session_state.wr_save_locks[selected_jc_str]
+
                             time.sleep(2)
                             st.rerun()
                         else:
