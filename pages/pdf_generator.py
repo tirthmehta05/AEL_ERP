@@ -170,36 +170,74 @@ def render_delivery_challan_tab(services: AppServices):
 
                         if is_core_building:
                             core_weight = float(receipt_row.get('TotalWeight') or 0)
+                            core_deduction = float(receipt_row.get('Deduction') or 0)
                             if core_weight > 0:
                                 designs = json.loads(receipt_row.get('DesignDetailsWithWeightsJSON', '[]'))
                                 if isinstance(designs, list):
-                                    for design in designs:
+                                    num_designs = len(designs)
+                                    for idx, design in enumerate(designs):
                                         description = f"{design.get('width', '')} X {design.get('length', '')}"
                                         if design.get('mm_stack'):
                                             description += f" X {design.get('mm_stack', '')}"
+                                        
+                                        # Only show weight/deduction/net on the LAST item for Building Core group
+                                        is_last = (idx == num_designs - 1)
+                                        
                                         line_items.append({
                                             "description": description,
                                             "remark": design.get('remark', ''),
-                                            "weight": None
+                                            "weight": core_weight if is_last else None,
+                                            "deduction": core_deduction if is_last else None,
+                                            "net_weight": (core_weight - core_deduction) if is_last else None
                                         })
                                 receipt_total_weight = core_weight
+                                receipt_total_deduction = core_deduction
                         else:
                             # "Loose Strips" logic
+                            # Deduction Logic: 
+                            # If total 'Deduction' in receipt matches sum of 'design_deduction's, assign per design.
+                            # If total 'Deduction' exists but 'design_deduction's are 0, it's a bulk deduction (assign to last or distribute? Plan says show "-" in rows).
+                            # Wait, PDF Service will show "-" if I pass 0.
+                            # So I need to pass the actual 'design_deduction' if it exists.
+                            
+                            receipt_deduction_total = float(receipt_row.get('Deduction') or 0)
+                            calculated_deduction_sum = 0
+                            
                             designs = json.loads(receipt_row.get('DesignDetailsWithWeightsJSON', '[]'))
+                            temp_items = []
+                            
                             if isinstance(designs, list):
                                 for design in designs:
                                     weight = float(design.get('actual_weight') or 0)
+                                    d_deduction = float(design.get('design_deduction') or 0)
+                                    calculated_deduction_sum += d_deduction
+                                    
                                     if weight > 0:
                                         remark = design.get('remark', '')
                                         description = f"{design.get('width', '')} X {design.get('length', '')}"
                                         if design.get('mm_stack'):
                                             description += f" X {design.get('mm_stack', '')}"
-                                        line_items.append({
+                                            
+                                        temp_items.append({
                                             "description": description,
                                             "remark": remark,
-                                            "weight": weight
+                                            "weight": weight,
+                                            "deduction": d_deduction,  # Might be 0
+                                            "net_weight": weight - d_deduction
                                         })
                                         receipt_total_weight += weight
+
+                                # Handle Global Deduction case (User entered Total Deduction manually)
+                                # If calculated_sum (from rows) < receipt_deduction_total, it means there's a global override or extra deduction
+                                # In this case, we can't show it per row efficiently. 
+                                # BUT the PDF service iterates rows. 
+                                # If I pass deduction=0 for rows, they show "-".
+                                # Then I simply pass the Totals to the summary.
+                                # The Loop above sets 'deduction' to d_deduction (which is 0 in global case). Correct.
+                                
+                                line_items.extend(temp_items)
+                                receipt_total_deduction = receipt_deduction_total # Use the official total
+
                         
                         if line_items:
                             grand_total_weight += receipt_total_weight
@@ -210,7 +248,9 @@ def render_delivery_challan_tab(services: AppServices):
                                 "summary": {
                                     "material": receipt_row.get('Material', ''),
                                     "sets": receipt_row.get('Sets', 0),
-                                    "total_weight": receipt_total_weight
+                                    "total_weight": receipt_total_weight,
+                                    "total_deduction": receipt_total_deduction,
+                                    "net_total_weight": receipt_total_weight - receipt_total_deduction
                                 }
                             })
 

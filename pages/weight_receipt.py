@@ -22,6 +22,10 @@ def initialize_wr_session_state():
         st.session_state.wr_weights = {}
     if 'wr_remarks' not in st.session_state:
         st.session_state.wr_remarks = {}
+    if 'wr_design_deductions' not in st.session_state:
+        st.session_state.wr_design_deductions = {}
+    if 'wr_selected_designs' not in st.session_state:
+        st.session_state.wr_selected_designs = set()
     if 'wr_total_weight' not in st.session_state:
         st.session_state.wr_total_weight = 0.0
     if 'current_jc_for_wr' not in st.session_state:
@@ -33,59 +37,121 @@ def initialize_wr_session_state():
     
 
 def _render_designs_grid(designs, drafts, editable=True):
-    """Helper function to render the designs grid."""
-    df_data = []
+    """
+    Renders the designs list using native Streamlit widgets to avoid data_editor lag.
+    Returns a DataFrame compatible with downstream logic.
+    """
+    # Header row
+    cols = st.columns([1, 2, 2, 2, 2, 2, 4])
+    headers = ["Select", "Width", "Length", "Expected", "Actual", "Deduction", "Remark"]
+    for col, header in zip(cols, headers):
+        col.markdown(f"**{header}**")
+    
+    st.markdown("---")
+    
+    # Rows
+    updated_data = []
+    
     for i, design_item in enumerate(designs):
-        actual_weight = st.session_state.wr_weights.get(i, drafts.get(i, {}).get('weight')) if editable else ""
-        remark = st.session_state.wr_remarks.get(i, drafts.get(i, {}).get('remark', '')) if editable else ""
-        df_data.append({
-            "Select": st.session_state.get('last_selected_index') == i if editable else False,
+        c1, c2, c3, c4, c5, c6, c7 = st.columns([1, 2, 2, 2, 2, 2, 4])
+        
+        # Determine current values
+        is_selected_state = i in st.session_state.get('wr_selected_designs', set())
+        current_weight = st.session_state.wr_weights.get(i, drafts.get(i, {}).get('weight', 0.0))
+        current_deduction = st.session_state.wr_design_deductions.get(i, drafts.get(i, {}).get('design_deduction', 0.0))
+        current_remark = st.session_state.wr_remarks.get(i, drafts.get(i, {}).get('remark', ''))
+        
+        # 1. Select Checkbox
+        with c1:
+            is_selected = st.checkbox(
+                "Select", 
+                value=is_selected_state, 
+                key=f"sel_{i}", 
+                label_visibility="collapsed",
+                disabled=not editable
+            )
+        
+        # 2. Width (Read-only)
+        with c2:
+            st.text(f"{design_item.get('width', 0)}")
+            
+        # 3. Length (Read-only)
+        with c3:
+            st.text(f"{design_item.get('length', 0)}")
+            
+        # 4. Expected Weight (Read-only)
+        with c4:
+            st.text(f"{design_item.get('weight', 0.0):.2f}")
+            
+        # 5. Actual Weight (Read-only / Disabled)
+        with c5:
+            # User wants this populated by buttons only, not manual entry
+            st.number_input(
+                "Weight", 
+                value=float(current_weight) if current_weight else 0.0,
+                key=f"wt_{i}",
+                label_visibility="collapsed",
+                disabled=True  # Disabled to prevent manual entry
+            )
+            # Use current_weight as the value for downstream logic logic
+            actual_wt = float(current_weight) if current_weight else 0.0
+
+        # 6. Deduction (Editable) - New!
+        with c6:
+            if editable:
+                deduction_val = st.number_input(
+                    "Deduction",
+                    value=float(current_deduction),
+                    key=f"ded_{i}",
+                    label_visibility="collapsed",
+                    step=0.1,
+                    min_value=0.0
+                )
+            else:
+                st.text(f"{current_deduction:.2f}" if current_deduction else "")
+                deduction_val = current_deduction
+        
+        # 7. Remark (Editable)
+        with c7:
+            if editable:
+                remark = st.text_input(
+                    "Remark",
+                    value=current_remark,
+                    key=f"rem_{i}",
+                    label_visibility="collapsed"
+                )
+            else:
+                st.text(current_remark)
+                remark = current_remark
+        
+        # Update session state immediately
+        if editable:
+            if is_selected:
+                st.session_state.wr_selected_designs.add(i)
+            elif i in st.session_state.get('wr_selected_designs', set()):
+                st.session_state.wr_selected_designs.discard(i)
+            
+            # Weight is updated via buttons, but we ensure state consistency here just in case
+            # st.session_state.wr_weights[i] = actual_wt 
+            
+            st.session_state.wr_design_deductions[i] = deduction_val
+            st.session_state.wr_remarks[i] = remark
+
+        # Build data dict for compatibility
+        updated_data.append({
+            "Select": is_selected,
             "Width": design_item.get('width', 0),
             "Length": design_item.get('length', 0),
             "Expected Wt.": design_item.get('weight', 0.0),
-            "Actual Wt.": actual_weight,
+            "Actual Wt.": actual_wt,
+            "Deduction": deduction_val,
             "Remark": remark,
             "original_index": i
         })
-    
-    ui_df = pd.DataFrame(df_data)
+        
+    return pd.DataFrame(updated_data)
 
-    is_a_row_selected = st.session_state.get('last_selected_index') is not None
 
-    column_config = {
-        "Select": st.column_config.CheckboxColumn(
-            "Select", 
-            help="Select one design to weigh", 
-            default=False, 
-            disabled=is_a_row_selected if editable else True
-        ),
-        "Width": st.column_config.NumberColumn(disabled=True),
-        "Length": st.column_config.NumberColumn(disabled=True),
-        "Expected Wt.": st.column_config.NumberColumn(format="%.2f", disabled=True),
-        "Actual Wt.": st.column_config.NumberColumn(format="%.2f", disabled=True),
-        "Remark": st.column_config.TextColumn(disabled=not editable),
-        "original_index": None
-    }
-
-    st.markdown("<h6>Design Details:</h6>", unsafe_allow_html=True)
-    edited_df = st.data_editor(
-        ui_df,
-        column_config=column_config,
-        hide_index=True,
-        use_container_width=True,
-        key="designs_data_editor"
-    )
-    return edited_df
-
-def _sync_editor_changes_to_state(edited_df: pd.DataFrame):
-    """
-    Updates session state with the latest values from the data editor.
-    This ensures that unsaved edits are not lost during reruns caused by other widgets.
-    """
-    for _, row in edited_df.iterrows():
-        idx = row['original_index']
-        st.session_state.wr_weights[idx] = row['Actual Wt.']
-        st.session_state.wr_remarks[idx] = row['Remark']
 
 def render_weight_receipt_form():
     st.markdown("<h3>Create Weight Receipt</h3>", unsafe_allow_html=True)
@@ -286,18 +352,9 @@ def render_weight_receipt_form():
 
             if weight_entry_type == "Loose Strips":
                 edited_df = _render_designs_grid(designs, drafts, editable=True)
-                _sync_editor_changes_to_state(edited_df)
-                
-                selected_rows = edited_df[edited_df["Select"]]
-                if len(selected_rows) > 1:
-                    first_selected_index = selected_rows.index[0]
-                    st.session_state.last_selected_index = first_selected_index
-                elif len(selected_rows) == 1:
-                    selected_index = selected_rows.index[0]
-                    if st.session_state.get('last_selected_index') != selected_index:
-                        st.session_state.last_selected_index = selected_index
-                else:
-                    st.session_state.last_selected_index = None
+                # Legacy Deduction Section Removed
+                # Deductions are now handled directly in the grid above.
+                selected_indices = st.session_state.get('wr_selected_designs', set())
 
                 st.markdown("---")
                 col1, col2, col3, col4 = st.columns(4)
@@ -307,55 +364,85 @@ def render_weight_receipt_form():
                     add_weight_clicked = st.button("Add Weight", key="add_weight_for_selected_design")
                 with col3:
                     save_draft_clicked = st.button("Save Draft", key="save_draft_for_selected_design")
+                # Clear Selection Logic
                 with col4:
-                    if st.session_state.get('last_selected_index') is not None:
+                    if len(selected_indices) > 0:
                         if st.button("Clear Selection", key="clear_selection"):
-                            st.session_state.last_selected_index = None
+                            st.session_state.wr_selected_designs = set()
                             st.rerun()
 
+                # Action Handlers
                 if get_weight_clicked or add_weight_clicked:
-                    idx_to_weigh = st.session_state.get('last_selected_index')
-                    if idx_to_weigh is not None:
+                    selected_indices = st.session_state.get('wr_selected_designs', set())
+                    if len(selected_indices) > 0:
                         with st.spinner("Fetching weight..."):
                             response_data = services.weight_receipt.get_current_weight_from_scale()
                             if response_data.get("success") and response_data.get("status") == "stable":
-                                weight = response_data.get("weight", 0.0)
-                                original_index = edited_df.loc[idx_to_weigh, "original_index"]
+                                total_scale_weight = response_data.get("weight", 0.0)
+                                
+                                # Calculate total expected weight of selected designs
+                                selected_total_expected = sum(designs[i].get('weight', 0.0) for i in selected_indices)
+                                
+                                # Apply proportionally to selected designs
+                                num_selected = len(selected_indices)
+                                
+                                for idx in selected_indices:
+                                    design = designs[idx]
+                                    expected_wt = design.get('weight', 0.0)
+                                    
+                                    # Calculate allocated weight portion
+                                    if selected_total_expected > 0:
+                                        # Proportional distribution: (Item Expected / Total Expected) * Total Scale Weight
+                                        allocated_portion = (expected_wt / selected_total_expected) * total_scale_weight
+                                    else:
+                                        # Fallback to equal distribution if no expected weights
+                                        allocated_portion = total_scale_weight / num_selected
+
+                                    if add_weight_clicked:
+                                        # Fix: Use draft weight as base if session state weight is not yet set
+                                        current_base_weight = st.session_state.wr_weights.get(idx)
+                                        if current_base_weight is None:
+                                            current_base_weight = drafts.get(idx, {}).get('weight', 0.0)
+                                        
+                                        st.session_state.wr_weights[idx] = current_base_weight + allocated_portion
+                                    else: # Get Weight
+                                        st.session_state.wr_weights[idx] = allocated_portion
                                 
                                 if add_weight_clicked:
-                                    st.session_state.wr_weights[original_index] = st.session_state.wr_weights.get(original_index, 0.0) + weight
-                                    st.toast(f"Added {weight:.2f} kg. New total: {st.session_state.wr_weights.get(original_index, 0.0):.2f} kg. Click 'Save Draft' to persist.", icon="⚖️")
-                                else: # Get Weight
-                                    st.session_state.wr_weights[original_index] = weight
-                                    st.toast(f"Weight received: {weight:.2f} kg. Click 'Save Draft' to persist.", icon="⚖️")
+                                    st.toast(f"Added {total_scale_weight:.2f} kg to {num_selected} designs (Proportional).", icon="⚖️")
+                                else:
+                                    st.toast(f"Fetched {total_scale_weight:.2f} kg for {num_selected} designs (Proportional).", icon="⚖️")
                                 
                                 st.rerun()
                             else:
                                 st.warning(f"Unstable: {response_data.get('status')}", icon="⚠️")
                     else:
-                        st.warning("Please select a design to weigh by checking its box.")
+                        st.warning("Please select at least one design to weigh.")
 
                 if save_draft_clicked:
-                    idx_to_save = st.session_state.get('last_selected_index')
-                    if idx_to_save is not None:
-                        original_index = edited_df.loc[idx_to_save, "original_index"]
-                        weight_to_save = st.session_state.wr_weights.get(original_index, 0.0)
-                        remark_to_save = st.session_state.wr_remarks.get(original_index, "")
-                        
-                        with st.spinner("Saving draft..."):
+                    selected_indices = st.session_state.get('wr_selected_designs', set())
+                    if len(selected_indices) > 0:
+                        with st.spinner("Saving drafts..."):
                             sets_for_this_receipt = st.session_state.get('wr_sets_for_receipt', 0)
-                            services.weight_receipt.save_weight_receipt_draft(
-                                job_card=selected_jc_str,
-                                design_index=original_index,
-                                weight=weight_to_save,
-                                remark=remark_to_save,
-                                sets_for_this_receipt=sets_for_this_receipt
-                            )
-                            st.toast("Draft saved!", icon="📝")
-                            st.session_state.last_selected_index = None
-                            st.rerun()
+                            
+                            for idx in selected_indices:
+                                weight_to_save = st.session_state.wr_weights.get(idx, 0.0)
+                                remark_to_save = st.session_state.wr_remarks.get(idx, "")
+                                deduction_to_save = st.session_state.wr_design_deductions.get(idx, 0.0)
+                                
+                                services.weight_receipt.save_weight_receipt_draft(
+                                    job_card=selected_jc_str,
+                                    design_index=idx,
+                                    weight=weight_to_save,
+                                    remark=remark_to_save,
+                                    sets_for_this_receipt=sets_for_this_receipt,
+                                    design_deduction=deduction_to_save
+                                )
+                            
+                            st.success(f"Draft saved for {len(selected_indices)} designs!")
                     else:
-                        st.warning("Please select a design to save.", icon="⚠️")
+                        st.warning("Please select designs to save.")
+
 
                 st.markdown("---")
 
@@ -382,6 +469,7 @@ def render_weight_receipt_form():
                         weighed_design_data = original_design_data.copy()
                         weighed_design_data['actual_weight'] = actual_weight
                         weighed_design_data['remark'] = row["Remark"]
+                        weighed_design_data['design_deduction'] = row["Deduction"]
                         weighed_designs.append(WeighedDesignDetail(**weighed_design_data))
 
                     # Validate cumulative weight for partial dispatch orders

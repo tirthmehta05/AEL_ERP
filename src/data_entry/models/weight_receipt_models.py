@@ -10,6 +10,7 @@ class WeighedDesignDetail(BaseModel):
     mm_stack: Optional[float] = None
     actual_weight: Optional[float] = None
     remark: Optional[str] = None
+    design_deduction: Optional[float] = 0.0  # Per-design deduction
 
 class WeightReceiptRequest(BaseModel):
     """Request model for creating a new Weight Receipt."""
