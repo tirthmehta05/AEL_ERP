@@ -20,8 +20,19 @@ import os
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from src.shared.integrations.google_drive_service import google_drive_service
-from config import settings
+# Import without Streamlit context
+os.environ['STREAMLIT_SERVER_HEADLESS'] = 'true'
+
+try:
+    from src.shared.integrations.google_drive_service import google_drive_service
+    from config import settings
+except Exception as e:
+    print(f"❌ Error loading configuration: {e}")
+    print("\nThis script requires:")
+    print("1. Google Sheets API credentials")
+    print("2. .streamlit/secrets.toml file")
+    print("\nPlease run this from the main Streamlit app or configure manually.")
+    sys.exit(1)
 
 
 class DataDiscoveryReport:
