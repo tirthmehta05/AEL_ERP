@@ -22,9 +22,8 @@ def test_generate_coil_number(inward_service):
     coating = "C5"
     width = 1250
     coil_number = inward_service.generate_coil_number(grade, coating, width)
-    assert grade in coil_number
-    assert coating in coil_number
-    assert str(width) in coil_number
+    assert coil_number.isdigit() # Assert it is a number series now, not logic based string
+
 
 def test_validate_single_entry_success(inward_service):
     """Test a successful validation of a single entry."""

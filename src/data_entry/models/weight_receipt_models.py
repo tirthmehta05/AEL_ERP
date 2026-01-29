@@ -11,6 +11,7 @@ class WeighedDesignDetail(BaseModel):
     actual_weight: Optional[float] = None
     remark: Optional[str] = None
     design_deduction: Optional[float] = 0.0  # Per-design deduction
+    sets: Optional[int] = None # Number of sets for this specific design (for Loose Strips/Itemized mode)
 
 class WeightReceiptRequest(BaseModel):
     """Request model for creating a new Weight Receipt."""

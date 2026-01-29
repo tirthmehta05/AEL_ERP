@@ -34,16 +34,20 @@ def initialize_wr_session_state():
         st.session_state.wr_core_remark = ""
     if 'wr_save_locks' not in st.session_state:
         st.session_state.wr_save_locks = {}
+    if 'wr_design_sets' not in st.session_state:
+        st.session_state.wr_design_sets = {}
+
     
 
-def _render_designs_grid(designs, drafts, editable=True):
+def _render_designs_grid(designs, drafts, is_itemized_mode=False, total_sets_in_jc=1, editable=True):
     """
-    Renders the designs list using native Streamlit widgets to avoid data_editor lag.
-    Returns a DataFrame compatible with downstream logic.
+    Renders the designs list using native Streamlit widgets.
+    In Itemized Mode, allows editing 'Sets' per row and calculates Expected Weight dynamically.
+    In Total Mode, 'Sets' is read-only (already scaled in the input 'designs').
     """
-    # Header row
-    cols = st.columns([1, 2, 2, 2, 2, 2, 4])
-    headers = ["Select", "Width", "Length", "Expected", "Actual", "Deduction", "Remark"]
+    # Header row: Select, Sets, Width, Length, Expected, Actual, Deduction, Remark
+    cols = st.columns([1, 1.5, 2, 2, 2, 2, 2, 3.5])
+    headers = ["Select", "Sets", "Width", "Length", "Expected", "Actual", "Deduction", "Remark"]
     for col, header in zip(cols, headers):
         col.markdown(f"**{header}**")
     
@@ -53,13 +57,41 @@ def _render_designs_grid(designs, drafts, editable=True):
     updated_data = []
     
     for i, design_item in enumerate(designs):
-        c1, c2, c3, c4, c5, c6, c7 = st.columns([1, 2, 2, 2, 2, 2, 4])
+        c1, c2, c3, c4, c5, c6, c7, c8 = st.columns([1, 1.5, 2, 2, 2, 2, 2, 3.5])
         
         # Determine current values
         is_selected_state = i in st.session_state.get('wr_selected_designs', set())
         current_weight = st.session_state.wr_weights.get(i, drafts.get(i, {}).get('weight', 0.0))
         current_deduction = st.session_state.wr_design_deductions.get(i, drafts.get(i, {}).get('design_deduction', 0.0))
         current_remark = st.session_state.wr_remarks.get(i, drafts.get(i, {}).get('remark', ''))
+        
+        # Sets Logic
+        current_sets_val = 1
+        if is_itemized_mode:
+            # Priority: Session -> Draft -> Design Item -> 1
+            if i in st.session_state.get('wr_design_sets', {}):
+                 current_sets_val = st.session_state.wr_design_sets[i]
+            else:
+                 # Default to draft or original design value
+                 draft_sets = drafts.get(i, {}).get('sets')
+                 if draft_sets is not None:
+                     current_sets_val = int(draft_sets)
+                 else:
+                     # Check if design has a default 'sets' value (e.g. from SO)
+                     # Note: design_item might be a dict or object. safely get.
+                     current_sets_val = int(design_item.get('sets', 1))
+        else:
+             # In Total mode, the design item already has the scaled sets
+            current_sets_val = int(design_item.get('sets', 0))
+
+        # Expected Weight Calculation
+        if is_itemized_mode and total_sets_in_jc > 0:
+            # Calculate dynamic portion based on row specific sets
+            base_weight = design_item.get('weight', 0.0) # Assuming design_item is the ORIGINAL (full sets) item
+            expected_display_weight = (base_weight / total_sets_in_jc) * current_sets_val
+        else:
+            # Already scaled
+            expected_display_weight = design_item.get('weight', 0.0)
         
         # 1. Select Checkbox
         with c1:
@@ -71,33 +103,48 @@ def _render_designs_grid(designs, drafts, editable=True):
                 disabled=not editable
             )
         
-        # 2. Width (Read-only)
+        # 2. Sets (Editable in Itemized, Read-only in Total)
         with c2:
+            if is_itemized_mode and editable:
+                sets_val = st.number_input(
+                    "Sets",
+                    min_value=1,
+                    max_value=int(design_item.get('sets', total_sets_in_jc)), # Enforce upper limit per design
+                    value=int(current_sets_val),
+                    key=f"sets_{i}",
+                    label_visibility="collapsed",
+                    step=1
+                )
+            else:
+                st.text(f"{current_sets_val}")
+                sets_val = current_sets_val
+
+        # 3. Width (Read-only)
+        with c3:
             st.text(f"{design_item.get('width', 0)}")
             
-        # 3. Length (Read-only)
-        with c3:
+        # 4. Length (Read-only)
+        with c4:
             st.text(f"{design_item.get('length', 0)}")
             
-        # 4. Expected Weight (Read-only)
-        with c4:
-            st.text(f"{design_item.get('weight', 0.0):.2f}")
-            
-        # 5. Actual Weight (Read-only / Disabled)
+        # 5. Expected Weight (Read-only, Dynamic)
         with c5:
-            # User wants this populated by buttons only, not manual entry
+            st.text(f"{expected_display_weight:.2f}")
+            
+        # 6. Actual Weight (Read-only / Disabled)
+        with c6:
+            # User wants this populated by buttons only
             st.number_input(
                 "Weight", 
                 value=float(current_weight) if current_weight else 0.0,
                 key=f"wt_{i}",
                 label_visibility="collapsed",
-                disabled=True  # Disabled to prevent manual entry
+                disabled=True 
             )
-            # Use current_weight as the value for downstream logic logic
             actual_wt = float(current_weight) if current_weight else 0.0
 
-        # 6. Deduction (Editable) - New!
-        with c6:
+        # 7. Deduction (Editable)
+        with c7:
             if editable:
                 deduction_val = st.number_input(
                     "Deduction",
@@ -111,8 +158,8 @@ def _render_designs_grid(designs, drafts, editable=True):
                 st.text(f"{current_deduction:.2f}" if current_deduction else "")
                 deduction_val = current_deduction
         
-        # 7. Remark (Editable)
-        with c7:
+        # 8. Remark (Editable)
+        with c8:
             if editable:
                 remark = st.text_input(
                     "Remark",
@@ -131,18 +178,18 @@ def _render_designs_grid(designs, drafts, editable=True):
             elif i in st.session_state.get('wr_selected_designs', set()):
                 st.session_state.wr_selected_designs.discard(i)
             
-            # Weight is updated via buttons, but we ensure state consistency here just in case
-            # st.session_state.wr_weights[i] = actual_wt 
-            
             st.session_state.wr_design_deductions[i] = deduction_val
             st.session_state.wr_remarks[i] = remark
+            if is_itemized_mode:
+                st.session_state.wr_design_sets[i] = sets_val
 
-        # Build data dict for compatibility
+        # Build data dict
         updated_data.append({
             "Select": is_selected,
+            "Sets": sets_val,
             "Width": design_item.get('width', 0),
             "Length": design_item.get('length', 0),
-            "Expected Wt.": design_item.get('weight', 0.0),
+            "Expected Wt.": expected_display_weight,
             "Actual Wt.": actual_wt,
             "Deduction": deduction_val,
             "Remark": remark,
@@ -192,6 +239,8 @@ def render_weight_receipt_form():
                 # When JC changes, reset the session state for weights and remarks
                 st.session_state.wr_weights = {}
                 st.session_state.wr_remarks = {}
+                st.session_state.wr_design_sets = {} # Reset design sets
+
 
                 if draft_total_weight is not None:
                     st.session_state.wr_total_weight = draft_total_weight
@@ -219,6 +268,29 @@ def render_weight_receipt_form():
             badge_color = "🟢" if order_type == "CORE_BUILDING" else ("🟡" if order_type == "LOOSE_STRIPS" else "🔵")
             st.markdown(f"**Order Type:** {badge_color} {order_type.replace('_', ' ').title()}")
             
+            # --- Weighing Mode Selection ---
+            st.markdown("---")
+            # Default to "Total Weight" for Core Building, "Individual Items" for others
+            mode_options = ["Total Weight", "Individual Items"]
+            default_mode_index = 0 if order_type == "CORE_BUILDING" else 1
+            
+            selected_mode = st.radio(
+                "Weighing Mode", 
+                mode_options, 
+                index=default_mode_index, 
+                horizontal=True,
+                help="Choose 'Total Weight' to weigh the entire set at once, or 'Individual Items' to weigh specific designs."
+            )
+
+            is_itemized_mode = (selected_mode == "Individual Items")
+            
+            # Map mode to backend 'weight_entry_type'
+            # "Loose Strips" implies itemized tracking in the backend logic
+            # "Building Core" implies total weight tracking
+            weight_entry_type = "Loose Strips" if is_itemized_mode else "Building Core"
+            
+            st.markdown("---")
+
             # --- Set Selection UI (varies by order type) ---
             if order_type == "CORE_BUILDING":
                 # Original set-based logic for core building orders
@@ -252,7 +324,7 @@ def render_weight_receipt_form():
                     sets_for_this_receipt_val = remaining_sets
 
                 sets_for_this_receipt = st.number_input(
-                    "Number of Sets for this Receipt",
+                    "Number of Cores for this Receipt",
                     min_value=1,
                     max_value=remaining_sets,
                     value=sets_for_this_receipt_val,
@@ -291,25 +363,30 @@ def render_weight_receipt_form():
                     st.stop()
                 
                 # Still track sets for record-keeping, but not enforced
-                total_sets_in_jc = int(selected_jc.get('number_of_cores', 1))  # Default to 1 if 0
+                total_sets_in_jc = max(1, int(selected_jc.get('number_of_cores') or 1))  # Default to 1 if 0 or None
                 completed_sets = services.weight_receipt.get_receipted_sets_for_job_card(selected_jc_str)
                 
                 sets_for_this_receipt_val = st.session_state.get('wr_sets_for_receipt', 1)
-                sets_for_this_receipt = st.number_input(
-                    "Number of Sets for this Receipt (for tracking only)",
-                    min_value=1,
-                    value=sets_for_this_receipt_val,
-                    step=1,
-                    key='wr_sets_for_receipt_input',
-                    help="Sets are tracked but not enforced for partial dispatch orders"
-                )
+                sets_for_this_receipt = 1
+                sets_for_this_receipt = 1
+                if not is_itemized_mode and order_type == "CORE_BUILDING": # Only show global sets input if Core Building
+                    sets_for_this_receipt = st.number_input(
+                        "Number of Sets for this Receipt (for tracking only)",
+                        min_value=1,
+                        max_value=total_sets_in_jc,
+                        value=sets_for_this_receipt_val,
+                        step=1,
+                        key='wr_sets_for_receipt_input',
+                        help="Sets are tracked but not enforced for partial dispatch orders"
+                    )
                 st.session_state.wr_sets_for_receipt = sets_for_this_receipt
+
 
             original_designs = json.loads(selected_jc.get('designs_json', '[]'))
             designs = [] 
             total_sets_in_jc = int(selected_jc.get('number_of_cores', 0))
 
-            if original_designs and total_sets_in_jc > 0 and sets_for_this_receipt > 0:
+            if original_designs and total_sets_in_jc > 0 and sets_for_this_receipt > 0 and not is_itemized_mode and order_type == "CORE_BUILDING":
                 scaling_factor = sets_for_this_receipt / total_sets_in_jc
                 for design_item in original_designs:
                     scaled_design_item = design_item.copy()
@@ -340,18 +417,27 @@ def render_weight_receipt_form():
 
             st.markdown("---")
 
+            # --- Weighing Mode logic moved up ---
             st.markdown("<h6>Design Details (Scaled for this Receipt)</h6>", unsafe_allow_html=True)
             
-            # Auto-determine weight entry type from order type
-            # Core Building orders use "Building Core" mode, others use "Loose Strips" mode
-            weight_entry_type = "Building Core" if order_type == "CORE_BUILDING" else "Loose Strips"
-            
-            deduction = st.number_input("Deduction (kg)", value=0.0, step=0.1, key="deduction_input")
+            deduction = 0.0
+            if not is_itemized_mode:
+                 deduction = st.number_input("Deduction (kg)", value=0.0, step=0.1, key="deduction_input")
+            else:
+                # In itemized mode, global deduction is 0. Deductions are entered per-design.
+                st.write("") # Spacer
+
             
             drafts = st.session_state.get('wr_draft_data', {})
 
             if weight_entry_type == "Loose Strips":
-                edited_df = _render_designs_grid(designs, drafts, editable=True)
+                edited_df = _render_designs_grid(
+                    designs, 
+                    drafts, 
+                    is_itemized_mode=is_itemized_mode,
+                    total_sets_in_jc=total_sets_in_jc,
+                    editable=True
+                )
                 # Legacy Deduction Section Removed
                 # Deductions are now handled directly in the grid above.
                 selected_indices = st.session_state.get('wr_selected_designs', set())
@@ -380,15 +466,29 @@ def render_weight_receipt_form():
                             if response_data.get("success") and response_data.get("status") == "stable":
                                 total_scale_weight = response_data.get("weight", 0.0)
                                 
+                                # Helper to get effective weight
+                                def get_effective_weight(idx):
+                                    if is_itemized_mode:
+                                        orig_weight = designs[idx].get('weight', 0.0)
+                                        # Use session state, fallback to draft, fallback to 1
+                                        draft_sets = drafts.get(idx, {}).get('sets', 1)
+                                        current_sets = st.session_state.wr_design_sets.get(idx, int(draft_sets) if draft_sets is not None else 1)
+                                        
+                                        if total_sets_in_jc > 0:
+                                            return (orig_weight / total_sets_in_jc) * current_sets
+                                        return 0.0
+                                    else:
+                                        return designs[idx].get('weight', 0.0)
+
                                 # Calculate total expected weight of selected designs
-                                selected_total_expected = sum(designs[i].get('weight', 0.0) for i in selected_indices)
+                                selected_total_expected = sum(get_effective_weight(i) for i in selected_indices)
                                 
                                 # Apply proportionally to selected designs
                                 num_selected = len(selected_indices)
                                 
                                 for idx in selected_indices:
                                     design = designs[idx]
-                                    expected_wt = design.get('weight', 0.0)
+                                    expected_wt = get_effective_weight(idx)
                                     
                                     # Calculate allocated weight portion
                                     if selected_total_expected > 0:
@@ -430,12 +530,15 @@ def render_weight_receipt_form():
                                 remark_to_save = st.session_state.wr_remarks.get(idx, "")
                                 deduction_to_save = st.session_state.wr_design_deductions.get(idx, 0.0)
                                 
+                                # Determine sets to save: Row-specific for itemized, global for total
+                                item_sets_to_save = st.session_state.wr_design_sets.get(idx, sets_for_this_receipt) if is_itemized_mode else sets_for_this_receipt
+
                                 services.weight_receipt.save_weight_receipt_draft(
                                     job_card=selected_jc_str,
                                     design_index=idx,
                                     weight=weight_to_save,
                                     remark=remark_to_save,
-                                    sets_for_this_receipt=sets_for_this_receipt,
+                                    sets_for_this_receipt=item_sets_to_save,
                                     design_deduction=deduction_to_save
                                 )
                             
@@ -458,19 +561,26 @@ def render_weight_receipt_form():
                     
                     weighed_designs = []
                     actual_total_weight = 0.0
+                    
                     for i, row in edited_df.iterrows():
                         actual_weight = row["Actual Wt."]
-                        if actual_weight <= 0:
-                            st.error(f"Please fetch a valid weight for all design items. Error at row {i+1}.")
-                            st.stop()
                         
-                        actual_total_weight += actual_weight
-                        original_design_data = designs[row['original_index']]
-                        weighed_design_data = original_design_data.copy()
-                        weighed_design_data['actual_weight'] = actual_weight
-                        weighed_design_data['remark'] = row["Remark"]
-                        weighed_design_data['design_deduction'] = row["Deduction"]
-                        weighed_designs.append(WeighedDesignDetail(**weighed_design_data))
+                        # Partial Weighing Logic: Only save items that have been weighed (>0)
+                        if actual_weight > 0:
+                            actual_total_weight += actual_weight
+                            original_design_data = designs[row['original_index']]
+                            weighed_design_data = original_design_data.copy()
+                            weighed_design_data['actual_weight'] = actual_weight
+                            weighed_design_data['actual_weight'] = actual_weight
+                            weighed_design_data['remark'] = row["Remark"]
+                            weighed_design_data['design_deduction'] = row["Deduction"]
+                            weighed_design_data['sets'] = row["Sets"] # Capture sets from grid
+                            weighed_designs.append(WeighedDesignDetail(**weighed_design_data))
+
+                    if not weighed_designs:
+                        st.error("Please weigh at least one item before saving.", icon="⚠️")
+                        st.stop()
+
 
                     # Validate cumulative weight for partial dispatch orders
                     if order_type in ["LOOSE_STRIPS", "EI_READY"]:
@@ -535,7 +645,7 @@ def render_weight_receipt_form():
                                 del st.session_state.wr_save_locks[selected_jc_str]
             
             elif weight_entry_type == "Building Core":
-                _render_designs_grid(designs, drafts, editable=False)
+                _render_designs_grid(designs, drafts, is_itemized_mode=False, editable=False)
                 st.markdown("<h6>Enter Total Actual Weight & Remark:</h6>", unsafe_allow_html=True)
                 
                 # --- UI for Weight and Remark Inputs ---

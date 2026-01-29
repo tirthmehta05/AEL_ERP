@@ -334,7 +334,8 @@ class WeightReceiptService:
                 result[row['DesignIndex']] = {
                     'weight': pd.to_numeric(row['ActualWeight'], errors='coerce'),
                     'remark': remark,
-                    'design_deduction': design_deduction
+                    'design_deduction': design_deduction,
+                    'sets': int(row.get('ReceiptSets', 1))
                 }
             return result, draft_sets_value, draft_total_weight, draft_core_remark
         except Exception as e:

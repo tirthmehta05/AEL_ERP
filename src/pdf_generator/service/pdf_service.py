@@ -528,7 +528,13 @@ class PDFService:
                 
                 pdf.set_font("Helvetica", '', 10)
                 x_before_p = pdf.get_x()
-                pdf.cell(desc_w, row_height, " " + line_item.get('description', ''), border='L', align='L')
+                
+                # Append sets to description if present (for itemized receipts)
+                description_text = line_item.get('description', '')
+                if line_item.get('sets'):
+                     description_text += f" ({line_item.get('sets')} sets)"
+
+                pdf.cell(desc_w, row_height, " " + description_text, border='L', align='L')
                 pdf.set_x(x_before_p + desc_w)
                 pdf.cell(remark_w, row_height, str(line_item.get('remark', '')) + " ", align='R')
                 pdf.set_x(x_before_p + particulars_w)
@@ -550,7 +556,17 @@ class PDFService:
             
             summary = item.get('summary', {})
             material_str = str(summary.get('material', ''))
-            set_str = f"Set : {summary.get('sets', 0)}"
+            summary = item.get('summary', {})
+            material_str = str(summary.get('material', ''))
+            
+            # Logic to handle mixed sets or single total sets
+            sets_val = summary.get('sets', 0)
+            try:
+                sets_val_num = float(sets_val)
+            except (ValueError, TypeError):
+                sets_val_num = 0
+                
+            set_str = f"Set : {sets_val}" if sets_val_num > 0 else ""
 
             x_before_s = pdf.get_x()
             pdf.cell(desc_w, row_height + 1, " " + material_str, border='LB', align='L')
@@ -771,6 +787,10 @@ class PDFService:
                 description = f"{item.get('width', '')} X {item.get('length', '')}"
                 if item.get('mm_stack'):
                     description += f" X {item.get('mm_stack', '')}"
+                
+                # Show sets if present (Itemized Mode)
+                if item.get('sets'):
+                    description += f" ({item.get('sets')} sets)"
                 
                 item_remark = item.get('remark', '')
                 if item_remark:

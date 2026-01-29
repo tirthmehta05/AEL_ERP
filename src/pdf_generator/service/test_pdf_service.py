@@ -2,6 +2,9 @@ import pytest
 from unittest.mock import MagicMock, patch, call
 import pandas as pd
 
+# Ensure submodule is loaded for patch to work
+import src.slitting_plan.service.slitting_plan_service
+
 # Patch the services that PDFService depends on before importing it
 with patch('src.slitting_plan.service.slitting_plan_service.SlittingPlanService', MagicMock()) as mock_slitting_service:
     from src.pdf_generator.service.pdf_service import PDFService
@@ -9,16 +12,18 @@ with patch('src.slitting_plan.service.slitting_plan_service.SlittingPlanService'
 @pytest.fixture
 def pdf_service():
     """Pytest fixture to provide a PDFService instance with mocked dependencies."""
-    service = PDFService()
-    # The slitting_service is already mocked by the patch at the top level
-    # We can re-assign it here if we need to control it per test
-    service.slitting_service = MagicMock()
-    return service
+    with patch('src.pdf_generator.service.pdf_service.WeightReceiptService', MagicMock()):
+        mock_so_service = MagicMock()
+        service = PDFService(sales_order_service=mock_so_service)
+        # The slitting_service is already mocked by the patch at the top level
+        # We can re-assign it here if we need to control it per test
+        service.slitting_service = MagicMock()
+        return service
 
 def test_get_available_coils_for_sticker(pdf_service):
     """Test that the service correctly calls the slitting service to get coils."""
     pdf_service.get_available_coils_for_sticker()
-    pdf_service.slitting_service.get_available_coils.assert_called_once()
+    pdf_service.slitting_service.get_available_coils_by_date.assert_called_once()
 
 @patch('src.pdf_generator.service.pdf_service.FPDF')
 @patch('src.pdf_generator.service.pdf_service.qrcode')
@@ -35,8 +40,8 @@ def test_generate_sticker_pdf_layout(mock_qrcode, mock_fpdf, pdf_service):
 
     pdf_service.generate_sticker_pdf(selected_coils)
 
-    # Should be called once at the start, and once for the 11th sticker
-    assert mock_pdf_instance.add_page.call_count == 2
+    # Should be called once at the start. 11 stickers fit on 1 page (limit is 12)
+    assert mock_pdf_instance.add_page.call_count == 1
     # Should be called once for each of the 11 coils
     assert pdf_service._draw_sticker.call_count == 11
 
