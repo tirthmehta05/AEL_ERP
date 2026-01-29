@@ -52,6 +52,15 @@ class WeightReceiptService:
     def save_weight_receipt(self, request: WeightReceiptRequest) -> bool:
         """Saves a new weight receipt."""
         try:
+            # Calculate total deduction from design-level deductions
+            total_design_deduction = sum(d.design_deduction or 0.0 for d in request.designs)
+            
+            # Hybrid Logic: 
+            # If user entered a Total Deduction > 0, use it (it takes precedence).
+            # Otherwise, use the sum of individual design deductions.
+            if request.deduction <= 0:
+                request.deduction = total_design_deduction
+            
             # Prepare the list of design dictionaries for JSON serialization
             designs_to_dump = []
             for d in request.designs:
@@ -236,11 +245,11 @@ class WeightReceiptService:
             logger.error(f"Error getting order type for JC {job_card_number}: {e}")
             return "CORE_BUILDING"
 
-    def save_weight_receipt_draft(self, job_card: str, design_index: int, weight: float, remark: str, sets_for_this_receipt: int) -> bool:
+    def save_weight_receipt_draft(self, job_card: str, design_index: int, weight: float, remark: str, sets_for_this_receipt: int, design_deduction: float = 0.0) -> bool:
         """Saves a single design's weighed data to a draft sheet."""
         try:
             sheet_name = "Weight Receipt Draft"
-            headers = ["JobCardNumber", "DesignIndex", "ActualWeight", "Timestamp", "ReceiptSets", "Remark"]
+            headers = ["JobCardNumber", "DesignIndex", "ActualWeight", "Timestamp", "ReceiptSets", "Remark", "DesignDeduction"]
             self.google_service.ensure_worksheet_with_headers(self.spreadsheet_id, sheet_name, headers)
 
             timestamp = datetime.now().isoformat()
@@ -252,7 +261,8 @@ class WeightReceiptService:
                 float(weight), 
                 str(timestamp), 
                 int(sets_for_this_receipt), 
-                str(remark)
+                str(remark),
+                float(design_deduction)
             ]
 
             success = self.google_service.append_data(self.spreadsheet_id, sheet_name, [row_data])
@@ -271,7 +281,7 @@ class WeightReceiptService:
         """
         Retrieves the latest draft data for a given job card.
         Returns a tuple: (
-            dictionary mapping design_index to its data,
+            dictionary mapping design_index to its data (including design_deduction),
             the number of sets for the draft session,
             the total weight if a 'Building Core' draft exists,
             the remark if a 'Building Core' draft exists
@@ -317,9 +327,15 @@ class WeightReceiptService:
             for _, row in latest_drafts_per_design.iterrows():
                 # Ensure remark is a string, default to empty string if it's missing or not a string type
                 remark = str(row.get('Remark', '')) if pd.notna(row.get('Remark')) else ''
+                # Get design_deduction, default to 0.0 if column doesn't exist or value is missing
+                design_deduction = pd.to_numeric(row.get('DesignDeduction', 0.0), errors='coerce')
+                design_deduction = design_deduction if pd.notna(design_deduction) else 0.0
+                
                 result[row['DesignIndex']] = {
                     'weight': pd.to_numeric(row['ActualWeight'], errors='coerce'),
-                    'remark': remark
+                    'remark': remark,
+                    'design_deduction': design_deduction,
+                    'sets': int(row.get('ReceiptSets', 1))
                 }
             return result, draft_sets_value, draft_total_weight, draft_core_remark
         except Exception as e:

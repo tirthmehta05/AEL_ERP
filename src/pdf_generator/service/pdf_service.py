@@ -480,17 +480,24 @@ class PDFService:
         pdf.set_font("Helvetica", 'B', 10)
         pdf.set_fill_color(230, 230, 230)
         header_height = 7
-        job_no_w = 30
-        po_no_w = 30
-        weight_w = 30
-        particulars_w = page_width - job_no_w - po_no_w - weight_w
+        # Updated Column Widths for new layout
+        header_height = 7
+        job_no_w = 20
+        po_no_w = 25
+        gross_w = 22
+        deduction_w = 22
+        net_w = 22
+        particulars_w = page_width - job_no_w - po_no_w - gross_w - deduction_w - net_w
+        
         desc_w = particulars_w * 0.65
         remark_w = particulars_w * 0.35
 
         pdf.cell(job_no_w, header_height, "Job No", border=1, fill=True, align='C')
         pdf.cell(po_no_w, header_height, "P O No", border=1, fill=True, align='C')
         pdf.cell(particulars_w, header_height, "Particulars", border=1, fill=True, align='C')
-        pdf.cell(weight_w, header_height, "Weight", border=1, fill=True, align='C', ln=True)
+        pdf.cell(gross_w, header_height, "Gross Wt", border=1, fill=True, align='C')
+        pdf.cell(deduction_w, header_height, "Deduction", border=1, fill=True, align='C')
+        pdf.cell(net_w, header_height, "Net Wt", border=1, fill=True, align='C', ln=True)
 
         # --- Table Body ---
         pdf.set_font("Helvetica", '', 10)
@@ -508,7 +515,9 @@ class PDFService:
                 pdf.cell(job_no_w, header_height, "Job No", border=1, fill=True, align='C')
                 pdf.cell(po_no_w, header_height, "P O No", border=1, fill=True, align='C')
                 pdf.cell(particulars_w, header_height, "Particulars", border=1, fill=True, align='C')
-                pdf.cell(weight_w, header_height, "Weight", border=1, fill=True, align='C', ln=True)
+                pdf.cell(gross_w, header_height, "Gross Wt", border=1, fill=True, align='C')
+                pdf.cell(deduction_w, header_height, "Deduction", border=1, fill=True, align='C')
+                pdf.cell(net_w, header_height, "Net Wt", border=1, fill=True, align='C', ln=True)
                 pdf.set_font("Helvetica", '', 10)
 
             # Draw line item rows
@@ -519,13 +528,24 @@ class PDFService:
                 
                 pdf.set_font("Helvetica", '', 10)
                 x_before_p = pdf.get_x()
-                pdf.cell(desc_w, row_height, " " + line_item.get('description', ''), border='L', align='L')
+                
+                # Append sets to description if present (for itemized receipts)
+                description_text = line_item.get('description', '')
+                if line_item.get('sets'):
+                     description_text += f" ({line_item.get('sets')} sets)"
+
+                pdf.cell(desc_w, row_height, " " + description_text, border='L', align='L')
                 pdf.set_x(x_before_p + desc_w)
                 pdf.cell(remark_w, row_height, str(line_item.get('remark', '')) + " ", align='R')
                 pdf.set_x(x_before_p + particulars_w)
 
-                weight_str = f"{line_item['weight']:.2f}" if line_item.get('weight') is not None else ""
-                pdf.cell(weight_w, row_height, weight_str, border='LR', align='R', ln=True)
+                weight_str = f"{line_item.get('weight', 0):.2f}" if line_item.get('weight') is not None else ""
+                deduction_str = f"{line_item.get('deduction', 0):.2f}" if line_item.get('deduction') is not None and line_item.get('deduction', 0) > 0 else "-"
+                net_str = f"{line_item.get('net_weight', 0):.2f}" if line_item.get('net_weight') is not None else ""
+
+                pdf.cell(gross_w, row_height, weight_str, border='L', align='R')
+                pdf.cell(deduction_w, row_height, deduction_str, border='L', align='R')
+                pdf.cell(net_w, row_height, net_str, border='LR', align='R', ln=True)
 
             # --- Summary Row for Job ---
             pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y()) # Manual top border for summary
@@ -536,7 +556,17 @@ class PDFService:
             
             summary = item.get('summary', {})
             material_str = str(summary.get('material', ''))
-            set_str = f"Set : {summary.get('sets', 0)}"
+            summary = item.get('summary', {})
+            material_str = str(summary.get('material', ''))
+            
+            # Logic to handle mixed sets or single total sets
+            sets_val = summary.get('sets', 0)
+            try:
+                sets_val_num = float(sets_val)
+            except (ValueError, TypeError):
+                sets_val_num = 0
+                
+            set_str = f"Set : {sets_val}" if sets_val_num > 0 else ""
 
             x_before_s = pdf.get_x()
             pdf.cell(desc_w, row_height + 1, " " + material_str, border='LB', align='L')
@@ -544,23 +574,25 @@ class PDFService:
             pdf.cell(remark_w, row_height + 1, set_str + " ", border='B', align='R')
             pdf.set_x(x_before_s + particulars_w)
 
-            pdf.cell(weight_w, row_height + 1, f"{summary.get('total_weight', 0):.3f}", border='LBR', align='R', ln=True)
+            pdf.cell(gross_w, row_height + 1, f"{summary.get('total_weight', 0):.3f}", border='LB', align='R')
+            pdf.cell(deduction_w, row_height + 1, f"{summary.get('total_deduction', 0):.3f}", border='LB', align='R')
+            pdf.cell(net_w, row_height + 1, f"{summary.get('net_total_weight', 0):.3f}", border='LBR', align='R', ln=True)
             pdf.set_font("Helvetica", '', 10)
 
         # --- Table Footer ---
         pdf.ln(5)
         pdf.set_font("Helvetica", 'B', 10)
-        total_cell_width = page_width - weight_w
+        total_cell_width = page_width - gross_w - deduction_w - net_w
         
-        total_deduction = sum(pd.to_numeric(receipt.get('Deduction', 0)) for _, receipt in data.get('receipts', pd.DataFrame()).iterrows())
-        net_total = data.get('grand_total_weight', 0) - total_deduction
+        # Calculate totals from the data passed
+        grand_gross = data.get('grand_total_weight', 0)
+        grand_deduction = sum(pd.to_numeric(receipt.get('Deduction', 0)) for _, receipt in data.get('receipts', pd.DataFrame()).iterrows())
+        grand_net = grand_gross - grand_deduction
 
         pdf.cell(total_cell_width, row_height, "Total", border=1, align='R')
-        pdf.cell(weight_w, row_height, f"{data.get('grand_total_weight', 0):.3f}", border=1, align='R', ln=True)
-        pdf.cell(total_cell_width, row_height, "Deduction", border=1, align='R')
-        pdf.cell(weight_w, row_height, f"{total_deduction:.3f}", border=1, align='R', ln=True)
-        pdf.cell(total_cell_width, row_height, "Net Total", border=1, align='R')
-        pdf.cell(weight_w, row_height, f"{net_total:.3f}", border=1, align='R', ln=True)
+        pdf.cell(gross_w, row_height, f"{grand_gross:.3f}", border=1, align='R')
+        pdf.cell(deduction_w, row_height, f"{grand_deduction:.3f}", border=1, align='R')
+        pdf.cell(net_w, row_height, f"{grand_net:.3f}", border=1, align='R', ln=True)
         pdf.ln(5)
 
         # --- Notes & Signature Section ---
@@ -673,9 +705,19 @@ class PDFService:
         # --- Items Table Header ---
         pdf.set_font("Helvetica", 'B', 10)
         pdf.set_fill_color(230, 230, 230)
-        pdf.cell(20, 8, "Sr No", border=1, fill=True, align='C')
-        pdf.cell(140, 8, "Description", border=1, fill=True, align='C')
-        pdf.cell(30, 8, "Weight", border=1, fill=True, align='C', ln=True)
+        
+        # New Column Widths
+        sr_no_w = 15
+        desc_w = 80
+        gross_w = 30
+        deduction_w = 30
+        net_w = 35
+        
+        pdf.cell(sr_no_w, 8, "Sr No", border=1, fill=True, align='C')
+        pdf.cell(desc_w, 8, "Description", border=1, fill=True, align='C')
+        pdf.cell(gross_w, 8, "Gross Wt", border=1, fill=True, align='C')
+        pdf.cell(deduction_w, 8, "Deduction", border=1, fill=True, align='C')
+        pdf.cell(net_w, 8, "Net Wt", border=1, fill=True, align='C', ln=True)
 
         # --- Items Table Rows ---
         pdf.set_font("Helvetica", '', 10)
@@ -689,9 +731,18 @@ class PDFService:
 
         if is_core_building:
             total_weight = float(receipt_data.get('TotalWeight', 0))
+            # Core Building Logic: Show values only on last row? Or if it's a group, show total on last and - on others.
+            # But the 'TotalWeight' is the gross weight. 
+            # Deduction is 'Deduction'.
+            total_deduction = float(receipt_data.get('Deduction', 0.0))
+            total_net = total_weight - total_deduction
+            
+            num_items = len(designs) if designs else 0
+            
             for i, item in enumerate(designs):
+                is_last = (i == num_items - 1)
                 start_y = pdf.get_y()
-                pdf.cell(20, row_height, str(i + 1), border=1, align='C')
+                pdf.cell(sr_no_w, row_height, str(i + 1), border=1, align='C')
                 
                 desc_x = pdf.get_x()
                 description = f"{item.get('width', '')} X {item.get('length', '')}"
@@ -699,51 +750,105 @@ class PDFService:
                     description += f" X {item.get('mm_stack', '')}"
                 
                 # Use multi_cell for description but manage positioning manually
-                pdf.multi_cell(140, row_height, description, border=1, align='C', ln=1)
+                pdf.multi_cell(desc_w, row_height, description, border=1, align='C', ln=1)
                 
                 # Manually set position for the next cell
-                pdf.set_xy(desc_x + 140, start_y)
-                pdf.cell(30, row_height, "", border=1, align='R', ln=True) # No individual weight
+                pdf.set_xy(desc_x + desc_w, start_y)
+                
+                if is_last:
+                    pdf.cell(gross_w, row_height, f"{total_weight:.3f}", border=1, align='R')
+                    pdf.cell(deduction_w, row_height, f"{total_deduction:.3f}" if total_deduction > 0 else "-", border=1, align='R')
+                    pdf.cell(net_w, row_height, f"{total_net:.3f}", border=1, align='R', ln=True)
+                else:
+                    pdf.cell(gross_w, row_height, "", border=1, align='R')
+                    pdf.cell(deduction_w, row_height, "", border=1, align='R')
+                    pdf.cell(net_w, row_height, "", border=1, align='R', ln=True)
+
         else: # Loose strips or legacy
+            # Check if total deduction is used or per-design
+            receipt_deduction = float(receipt_data.get('Deduction', 0.0))
+            sum_design_deductions = sum(float(d.get('design_deduction', 0.0)) for d in designs)
+            
+            # Logic Update:
+            # If we have explicit design deductions (sum > 0), use them as the source of truth.
+            # This handles cases where stored total might be 0 or stale.
+            # Otherwise, fall back to the stored receipt_deduction (Legacy behavior).
+            use_per_design_deduction = (sum_design_deductions > 0)
+            
+            # If using per-design, update the total deduction to match the sum (fix footer math)
+            if use_per_design_deduction:
+                receipt_deduction = sum_design_deductions
+            
             for i, item in enumerate(designs):
                 start_y = pdf.get_y()
-                pdf.cell(20, row_height, str(i + 1), border=1, align='C')
+                pdf.cell(sr_no_w, row_height, str(i + 1), border=1, align='C')
                 
                 desc_x = pdf.get_x()
                 description = f"{item.get('width', '')} X {item.get('length', '')}"
                 if item.get('mm_stack'):
                     description += f" X {item.get('mm_stack', '')}"
                 
+                # Show sets if present (Itemized Mode)
+                if item.get('sets'):
+                    description += f" ({item.get('sets')} sets)"
+                
                 item_remark = item.get('remark', '')
                 if item_remark:
                     # Use a second line for remark instead of multi_cell to control height
-                    pdf.cell(140, row_height / 2, description, border='LRT', align='C', ln=2) # Go to next line
+                    pdf.cell(desc_w, row_height / 2, description, border='LRT', align='C', ln=2) # Go to next line
                     pdf.set_x(desc_x)
-                    pdf.cell(140, row_height / 2, item_remark, border='LRB', align='C')
+                    pdf.cell(desc_w, row_height / 2, item_remark, border='LRB', align='C')
                 else:
-                    pdf.cell(140, row_height, description, border=1, align='C')
+                    pdf.cell(desc_w, row_height, description, border=1, align='C')
 
                 weight = float(item.get('actual_weight') or 0)
                 total_weight += weight
+                
+                d_deduction = float(item.get('design_deduction', 0.0)) if use_per_design_deduction else 0.0
+                net_weight = weight - d_deduction
 
-                pdf.set_xy(desc_x + 140, start_y)
-                pdf.cell(30, row_height, f"{weight:.3f}" if weight > 0 else "", border=1, align='R', ln=True)
+                pdf.set_xy(desc_x + desc_w, start_y)
+                pdf.cell(gross_w, row_height, f"{weight:.3f}" if weight > 0 else "", border=1, align='R')
+                
+                ded_str = f"{d_deduction:.3f}" if (d_deduction > 0 and use_per_design_deduction) else "-"
+                pdf.cell(deduction_w, row_height, ded_str, border=1, align='R')
+                
+                pdf.cell(net_w, row_height, f"{net_weight:.3f}" if weight > 0 else "", border=1, align='R', ln=True)
 
         # --- Table Footer ---
         pdf.set_font("Helvetica", '', 10)
-        # Empty Sr No cell (20mm)
-        pdf.cell(20, 8, '', border='LTB')
+        # Empty Sr No cell
+        pdf.cell(sr_no_w, 8, '', border='LTB')
 
-        # Type (40mm) + Set (20mm) + Remark (80mm) = 140mm (Description column width)
-        pdf.cell(40, 8, f"Type: {receipt_data.get('Material', 'N/A')}", border='TB')
-        pdf.cell(20, 8, f"Set: {receipt_data.get('Sets', 'N/A')}", border='TB')
+        # Type (40mm) + Set (20mm) + Remark (rest)
+        # Width sum must match desc_w = 80
+        # Let's adjust widths to fit nicely
         
-        remark_text = f"Remark: {core_receipt_remark}" if is_core_building and core_receipt_remark else ""
-        pdf.cell(80, 8, remark_text, border='TB')
+        type_w = 30
+        set_w = 15
+        rem_w = 35 
+        
+        pdf.cell(type_w, 8, f"Type: {receipt_data.get('Material', 'N/A')}", border='TB')
+        pdf.cell(set_w, 8, f"Set: {receipt_data.get('Sets', 'N/A')}", border='TB')
+        
+        remark_text = f"Rem: {core_receipt_remark}" if is_core_building and core_receipt_remark else ""
+        pdf.cell(rem_w, 8, remark_text, border='TB')
 
-        # Weight (30mm)
+        # Totals
+        # Weights should align with columns
         pdf.set_font("Helvetica", 'B', 10)
-        pdf.cell(30, 8, f"Weight: {total_weight:.3f}", border=1, align='R', ln=True)
+        
+        # Recalculate based on the logic above
+        if not is_core_building and sum_design_deductions > 0:
+             final_deduction = sum_design_deductions
+        else:
+             final_deduction = float(receipt_data.get('Deduction', 0.0))
+
+        net_weight = total_weight - final_deduction
+
+        pdf.cell(gross_w, 8, f"{total_weight:.3f}", border=1, align='R')
+        pdf.cell(deduction_w, 8, f"{final_deduction:.3f}", border=1, align='R')
+        pdf.cell(net_w, 8, f"{net_weight:.3f}", border=1, align='R', ln=True)
         pdf.ln(2)
 
         # --- Details below table ---
@@ -753,8 +858,9 @@ class PDFService:
         deduction = float(receipt_data.get('Deduction', 0.0))
         net_weight = total_weight - deduction
         # Line 2: Deduction, Net
-        pdf.cell(col_width, line_height, f"Deduction : {deduction:.2f}", border=0)
-        pdf.cell(col_width, line_height, f"Net : {net_weight:.2f}", border=0, ln=True)
+        # Line 2: Removed as it's now in the table footer
+        # pdf.cell(col_width, line_height, f"Deduction : {deduction:.2f}", border=0)
+        # pdf.cell(col_width, line_height, f"Net : {net_weight:.2f}", border=0, ln=True)
         pdf.ln(15) # Increased spacing
 
         # --- Signatures and Timestamps ---

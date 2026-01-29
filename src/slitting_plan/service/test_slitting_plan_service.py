@@ -2,6 +2,9 @@ import pytest
 from unittest.mock import MagicMock, patch
 import pandas as pd
 
+# Ensure submodule is loaded for patch to work
+import src.slitting_plan.repository.slitting_plan_repository
+
 # Patch dependencies before importing the service
 with patch('src.slitting_plan.repository.slitting_plan_repository.SlittingPlanRepository', MagicMock()), \
      patch('src.data_entry.service.rm_used_service.RMUsedService', MagicMock()):
@@ -60,7 +63,7 @@ def test_calculate_slitting_plan_slit_too_wide(slitting_plan_service):
     result = slitting_plan_service.calculate_slitting_plan(selected_coils_df, edited_df)
 
     # --- Assert ---
-    assert "Error: Requested slit size of 1200.0mm is wider than the selected coil width (1000)." in result['errors']
+    assert "Error: Requested slit size of 1200mm is wider than the selected coil width (1000mm)." in result['errors']
 
 def test_calculate_slitting_plan_total_width_exceeded(slitting_plan_service):
     """Test validation error when total slit width exceeds coil width."""
@@ -75,4 +78,4 @@ def test_calculate_slitting_plan_total_width_exceeded(slitting_plan_service):
     result = slitting_plan_service.calculate_slitting_plan(selected_coils_df, edited_df)
 
     # --- Assert ---
-    assert "Error: Total planned width (1100.0mm) exceeds the width of a single coil (1000)." in result['errors']
+    assert "Error: Total planned width (1100mm) exceeds the width of a single coil (1000mm)." in result['errors']

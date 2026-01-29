@@ -22,68 +22,183 @@ def initialize_wr_session_state():
         st.session_state.wr_weights = {}
     if 'wr_remarks' not in st.session_state:
         st.session_state.wr_remarks = {}
+    if 'wr_design_deductions' not in st.session_state:
+        st.session_state.wr_design_deductions = {}
+    if 'wr_selected_designs' not in st.session_state:
+        st.session_state.wr_selected_designs = set()
     if 'wr_total_weight' not in st.session_state:
         st.session_state.wr_total_weight = 0.0
     if 'current_jc_for_wr' not in st.session_state:
         st.session_state.current_jc_for_wr = None
     if 'wr_core_remark' not in st.session_state:
         st.session_state.wr_core_remark = ""
+    if 'wr_save_locks' not in st.session_state:
+        st.session_state.wr_save_locks = {}
+    if 'wr_design_sets' not in st.session_state:
+        st.session_state.wr_design_sets = {}
+
     
 
-def _render_designs_grid(designs, drafts, editable=True):
-    """Helper function to render the designs grid."""
-    df_data = []
+def _render_designs_grid(designs, drafts, is_itemized_mode=False, total_sets_in_jc=1, editable=True):
+    """
+    Renders the designs list using native Streamlit widgets.
+    In Itemized Mode, allows editing 'Sets' per row and calculates Expected Weight dynamically.
+    In Total Mode, 'Sets' is read-only (already scaled in the input 'designs').
+    """
+    # Header row: Select, Sets, Width, Length, Expected, Actual, Deduction, Remark
+    cols = st.columns([1, 1.5, 2, 2, 2, 2, 2, 3.5])
+    headers = ["Select", "Sets", "Width", "Length", "Expected", "Actual", "Deduction", "Remark"]
+    for col, header in zip(cols, headers):
+        col.markdown(f"**{header}**")
+    
+    st.markdown("---")
+    
+    # Rows
+    updated_data = []
+    
     for i, design_item in enumerate(designs):
-        actual_weight = st.session_state.wr_weights.get(i, drafts.get(i, {}).get('weight')) if editable else ""
-        remark = st.session_state.wr_remarks.get(i, drafts.get(i, {}).get('remark', '')) if editable else ""
-        df_data.append({
-            "Select": st.session_state.get('last_selected_index') == i if editable else False,
+        c1, c2, c3, c4, c5, c6, c7, c8 = st.columns([1, 1.5, 2, 2, 2, 2, 2, 3.5])
+        
+        # Determine current values
+        is_selected_state = i in st.session_state.get('wr_selected_designs', set())
+        current_weight = st.session_state.wr_weights.get(i, drafts.get(i, {}).get('weight', 0.0))
+        current_deduction = st.session_state.wr_design_deductions.get(i, drafts.get(i, {}).get('design_deduction', 0.0))
+        current_remark = st.session_state.wr_remarks.get(i, drafts.get(i, {}).get('remark', ''))
+        
+        # Sets Logic
+        current_sets_val = 1
+        if is_itemized_mode:
+            # Priority: Session -> Draft -> Design Item -> 1
+            if i in st.session_state.get('wr_design_sets', {}):
+                 current_sets_val = st.session_state.wr_design_sets[i]
+            else:
+                 # Default to draft or original design value
+                 draft_sets = drafts.get(i, {}).get('sets')
+                 if draft_sets is not None:
+                     current_sets_val = int(draft_sets)
+                 else:
+                     # Check if design has a default 'sets' value (e.g. from SO)
+                     # Note: design_item might be a dict or object. safely get.
+                     current_sets_val = int(design_item.get('sets', 1))
+        else:
+             # In Total mode, the design item already has the scaled sets
+            current_sets_val = int(design_item.get('sets', 0))
+
+        # Expected Weight Calculation
+        if is_itemized_mode and total_sets_in_jc > 0:
+            # Calculate dynamic portion based on row specific sets
+            base_weight = design_item.get('weight', 0.0) # Assuming design_item is the ORIGINAL (full sets) item
+            expected_display_weight = (base_weight / total_sets_in_jc) * current_sets_val
+        else:
+            # Already scaled
+            expected_display_weight = design_item.get('weight', 0.0)
+        
+        # 1. Select Checkbox
+        with c1:
+            is_selected = st.checkbox(
+                "Select", 
+                value=is_selected_state, 
+                key=f"sel_{i}", 
+                label_visibility="collapsed",
+                disabled=not editable
+            )
+        
+        # 2. Sets (Editable in Itemized, Read-only in Total)
+        with c2:
+            if is_itemized_mode and editable:
+                sets_val = st.number_input(
+                    "Sets",
+                    min_value=1,
+                    max_value=int(design_item.get('sets', total_sets_in_jc)), # Enforce upper limit per design
+                    value=int(current_sets_val),
+                    key=f"sets_{i}",
+                    label_visibility="collapsed",
+                    step=1
+                )
+            else:
+                st.text(f"{current_sets_val}")
+                sets_val = current_sets_val
+
+        # 3. Width (Read-only)
+        with c3:
+            st.text(f"{design_item.get('width', 0)}")
+            
+        # 4. Length (Read-only)
+        with c4:
+            st.text(f"{design_item.get('length', 0)}")
+            
+        # 5. Expected Weight (Read-only, Dynamic)
+        with c5:
+            st.text(f"{expected_display_weight:.2f}")
+            
+        # 6. Actual Weight (Read-only / Disabled)
+        with c6:
+            # User wants this populated by buttons only
+            st.number_input(
+                "Weight", 
+                value=float(current_weight) if current_weight else 0.0,
+                key=f"wt_{i}",
+                label_visibility="collapsed",
+                disabled=True 
+            )
+            actual_wt = float(current_weight) if current_weight else 0.0
+
+        # 7. Deduction (Editable)
+        with c7:
+            if editable:
+                deduction_val = st.number_input(
+                    "Deduction",
+                    value=float(current_deduction),
+                    key=f"ded_{i}",
+                    label_visibility="collapsed",
+                    step=0.1,
+                    min_value=0.0
+                )
+            else:
+                st.text(f"{current_deduction:.2f}" if current_deduction else "")
+                deduction_val = current_deduction
+        
+        # 8. Remark (Editable)
+        with c8:
+            if editable:
+                remark = st.text_input(
+                    "Remark",
+                    value=current_remark,
+                    key=f"rem_{i}",
+                    label_visibility="collapsed"
+                )
+            else:
+                st.text(current_remark)
+                remark = current_remark
+        
+        # Update session state immediately
+        if editable:
+            if is_selected:
+                st.session_state.wr_selected_designs.add(i)
+            elif i in st.session_state.get('wr_selected_designs', set()):
+                st.session_state.wr_selected_designs.discard(i)
+            
+            st.session_state.wr_design_deductions[i] = deduction_val
+            st.session_state.wr_remarks[i] = remark
+            if is_itemized_mode:
+                st.session_state.wr_design_sets[i] = sets_val
+
+        # Build data dict
+        updated_data.append({
+            "Select": is_selected,
+            "Sets": sets_val,
             "Width": design_item.get('width', 0),
             "Length": design_item.get('length', 0),
-            "Expected Wt.": design_item.get('weight', 0.0),
-            "Actual Wt.": actual_weight,
+            "Expected Wt.": expected_display_weight,
+            "Actual Wt.": actual_wt,
+            "Deduction": deduction_val,
             "Remark": remark,
             "original_index": i
         })
-    
-    ui_df = pd.DataFrame(df_data)
+        
+    return pd.DataFrame(updated_data)
 
-    is_a_row_selected = st.session_state.get('last_selected_index') is not None
 
-    column_config = {
-        "Select": st.column_config.CheckboxColumn(
-            "Select", 
-            help="Select one design to weigh", 
-            default=False, 
-            disabled=is_a_row_selected if editable else True
-        ),
-        "Width": st.column_config.NumberColumn(disabled=True),
-        "Length": st.column_config.NumberColumn(disabled=True),
-        "Expected Wt.": st.column_config.NumberColumn(format="%.2f", disabled=True),
-        "Actual Wt.": st.column_config.NumberColumn(format="%.2f", disabled=True),
-        "Remark": st.column_config.TextColumn(disabled=not editable),
-        "original_index": None
-    }
-
-    st.markdown("<h6>Design Details:</h6>", unsafe_allow_html=True)
-    edited_df = st.data_editor(
-        ui_df,
-        column_config=column_config,
-        hide_index=True,
-        use_container_width=True,
-        key="designs_data_editor"
-    )
-    return edited_df
-
-def _sync_editor_changes_to_state(edited_df: pd.DataFrame):
-    """
-    Updates session state with the latest values from the data editor.
-    This ensures that unsaved edits are not lost during reruns caused by other widgets.
-    """
-    for _, row in edited_df.iterrows():
-        idx = row['original_index']
-        st.session_state.wr_weights[idx] = row['Actual Wt.']
-        st.session_state.wr_remarks[idx] = row['Remark']
 
 def render_weight_receipt_form():
     st.markdown("<h3>Create Weight Receipt</h3>", unsafe_allow_html=True)
@@ -124,6 +239,8 @@ def render_weight_receipt_form():
                 # When JC changes, reset the session state for weights and remarks
                 st.session_state.wr_weights = {}
                 st.session_state.wr_remarks = {}
+                st.session_state.wr_design_sets = {} # Reset design sets
+
 
                 if draft_total_weight is not None:
                     st.session_state.wr_total_weight = draft_total_weight
@@ -151,6 +268,29 @@ def render_weight_receipt_form():
             badge_color = "🟢" if order_type == "CORE_BUILDING" else ("🟡" if order_type == "LOOSE_STRIPS" else "🔵")
             st.markdown(f"**Order Type:** {badge_color} {order_type.replace('_', ' ').title()}")
             
+            # --- Weighing Mode Selection ---
+            st.markdown("---")
+            # Default to "Total Weight" for Core Building, "Individual Items" for others
+            mode_options = ["Total Weight", "Individual Items"]
+            default_mode_index = 0 if order_type == "CORE_BUILDING" else 1
+            
+            selected_mode = st.radio(
+                "Weighing Mode", 
+                mode_options, 
+                index=default_mode_index, 
+                horizontal=True,
+                help="Choose 'Total Weight' to weigh the entire set at once, or 'Individual Items' to weigh specific designs."
+            )
+
+            is_itemized_mode = (selected_mode == "Individual Items")
+            
+            # Map mode to backend 'weight_entry_type'
+            # "Loose Strips" implies itemized tracking in the backend logic
+            # "Building Core" implies total weight tracking
+            weight_entry_type = "Loose Strips" if is_itemized_mode else "Building Core"
+            
+            st.markdown("---")
+
             # --- Set Selection UI (varies by order type) ---
             if order_type == "CORE_BUILDING":
                 # Original set-based logic for core building orders
@@ -184,7 +324,7 @@ def render_weight_receipt_form():
                     sets_for_this_receipt_val = remaining_sets
 
                 sets_for_this_receipt = st.number_input(
-                    "Number of Sets for this Receipt",
+                    "Number of Cores for this Receipt",
                     min_value=1,
                     max_value=remaining_sets,
                     value=sets_for_this_receipt_val,
@@ -223,25 +363,30 @@ def render_weight_receipt_form():
                     st.stop()
                 
                 # Still track sets for record-keeping, but not enforced
-                total_sets_in_jc = int(selected_jc.get('number_of_cores', 1))  # Default to 1 if 0
+                total_sets_in_jc = max(1, int(selected_jc.get('number_of_cores') or 1))  # Default to 1 if 0 or None
                 completed_sets = services.weight_receipt.get_receipted_sets_for_job_card(selected_jc_str)
                 
                 sets_for_this_receipt_val = st.session_state.get('wr_sets_for_receipt', 1)
-                sets_for_this_receipt = st.number_input(
-                    "Number of Sets for this Receipt (for tracking only)",
-                    min_value=1,
-                    value=sets_for_this_receipt_val,
-                    step=1,
-                    key='wr_sets_for_receipt_input',
-                    help="Sets are tracked but not enforced for partial dispatch orders"
-                )
+                sets_for_this_receipt = 1
+                sets_for_this_receipt = 1
+                if not is_itemized_mode and order_type == "CORE_BUILDING": # Only show global sets input if Core Building
+                    sets_for_this_receipt = st.number_input(
+                        "Number of Sets for this Receipt (for tracking only)",
+                        min_value=1,
+                        max_value=total_sets_in_jc,
+                        value=sets_for_this_receipt_val,
+                        step=1,
+                        key='wr_sets_for_receipt_input',
+                        help="Sets are tracked but not enforced for partial dispatch orders"
+                    )
                 st.session_state.wr_sets_for_receipt = sets_for_this_receipt
+
 
             original_designs = json.loads(selected_jc.get('designs_json', '[]'))
             designs = [] 
             total_sets_in_jc = int(selected_jc.get('number_of_cores', 0))
 
-            if original_designs and total_sets_in_jc > 0 and sets_for_this_receipt > 0:
+            if original_designs and total_sets_in_jc > 0 and sets_for_this_receipt > 0 and not is_itemized_mode and order_type == "CORE_BUILDING":
                 scaling_factor = sets_for_this_receipt / total_sets_in_jc
                 for design_item in original_designs:
                     scaled_design_item = design_item.copy()
@@ -272,30 +417,30 @@ def render_weight_receipt_form():
 
             st.markdown("---")
 
+            # --- Weighing Mode logic moved up ---
             st.markdown("<h6>Design Details (Scaled for this Receipt)</h6>", unsafe_allow_html=True)
             
-            # Auto-determine weight entry type from order type
-            # Core Building orders use "Building Core" mode, others use "Loose Strips" mode
-            weight_entry_type = "Building Core" if order_type == "CORE_BUILDING" else "Loose Strips"
-            
-            deduction = st.number_input("Deduction (kg)", value=0.0, step=0.1, key="deduction_input")
+            deduction = 0.0
+            if not is_itemized_mode:
+                 deduction = st.number_input("Deduction (kg)", value=0.0, step=0.1, key="deduction_input")
+            else:
+                # In itemized mode, global deduction is 0. Deductions are entered per-design.
+                st.write("") # Spacer
+
             
             drafts = st.session_state.get('wr_draft_data', {})
 
             if weight_entry_type == "Loose Strips":
-                edited_df = _render_designs_grid(designs, drafts, editable=True)
-                _sync_editor_changes_to_state(edited_df)
-                
-                selected_rows = edited_df[edited_df["Select"]]
-                if len(selected_rows) > 1:
-                    first_selected_index = selected_rows.index[0]
-                    st.session_state.last_selected_index = first_selected_index
-                elif len(selected_rows) == 1:
-                    selected_index = selected_rows.index[0]
-                    if st.session_state.get('last_selected_index') != selected_index:
-                        st.session_state.last_selected_index = selected_index
-                else:
-                    st.session_state.last_selected_index = None
+                edited_df = _render_designs_grid(
+                    designs, 
+                    drafts, 
+                    is_itemized_mode=is_itemized_mode,
+                    total_sets_in_jc=total_sets_in_jc,
+                    editable=True
+                )
+                # Legacy Deduction Section Removed
+                # Deductions are now handled directly in the grid above.
+                selected_indices = st.session_state.get('wr_selected_designs', set())
 
                 st.markdown("---")
                 col1, col2, col3, col4 = st.columns(4)
@@ -305,73 +450,137 @@ def render_weight_receipt_form():
                     add_weight_clicked = st.button("Add Weight", key="add_weight_for_selected_design")
                 with col3:
                     save_draft_clicked = st.button("Save Draft", key="save_draft_for_selected_design")
+                # Clear Selection Logic
                 with col4:
-                    if st.session_state.get('last_selected_index') is not None:
+                    if len(selected_indices) > 0:
                         if st.button("Clear Selection", key="clear_selection"):
-                            st.session_state.last_selected_index = None
+                            st.session_state.wr_selected_designs = set()
                             st.rerun()
 
+                # Action Handlers
                 if get_weight_clicked or add_weight_clicked:
-                    idx_to_weigh = st.session_state.get('last_selected_index')
-                    if idx_to_weigh is not None:
+                    selected_indices = st.session_state.get('wr_selected_designs', set())
+                    if len(selected_indices) > 0:
                         with st.spinner("Fetching weight..."):
                             response_data = services.weight_receipt.get_current_weight_from_scale()
                             if response_data.get("success") and response_data.get("status") == "stable":
-                                weight = response_data.get("weight", 0.0)
-                                original_index = edited_df.loc[idx_to_weigh, "original_index"]
+                                total_scale_weight = response_data.get("weight", 0.0)
+                                
+                                # Helper to get effective weight
+                                def get_effective_weight(idx):
+                                    if is_itemized_mode:
+                                        orig_weight = designs[idx].get('weight', 0.0)
+                                        # Use session state, fallback to draft, fallback to 1
+                                        draft_sets = drafts.get(idx, {}).get('sets', 1)
+                                        current_sets = st.session_state.wr_design_sets.get(idx, int(draft_sets) if draft_sets is not None else 1)
+                                        
+                                        if total_sets_in_jc > 0:
+                                            return (orig_weight / total_sets_in_jc) * current_sets
+                                        return 0.0
+                                    else:
+                                        return designs[idx].get('weight', 0.0)
+
+                                # Calculate total expected weight of selected designs
+                                selected_total_expected = sum(get_effective_weight(i) for i in selected_indices)
+                                
+                                # Apply proportionally to selected designs
+                                num_selected = len(selected_indices)
+                                
+                                for idx in selected_indices:
+                                    design = designs[idx]
+                                    expected_wt = get_effective_weight(idx)
+                                    
+                                    # Calculate allocated weight portion
+                                    if selected_total_expected > 0:
+                                        # Proportional distribution: (Item Expected / Total Expected) * Total Scale Weight
+                                        allocated_portion = (expected_wt / selected_total_expected) * total_scale_weight
+                                    else:
+                                        # Fallback to equal distribution if no expected weights
+                                        allocated_portion = total_scale_weight / num_selected
+
+                                    if add_weight_clicked:
+                                        # Fix: Use draft weight as base if session state weight is not yet set
+                                        current_base_weight = st.session_state.wr_weights.get(idx)
+                                        if current_base_weight is None:
+                                            current_base_weight = drafts.get(idx, {}).get('weight', 0.0)
+                                        
+                                        st.session_state.wr_weights[idx] = current_base_weight + allocated_portion
+                                    else: # Get Weight
+                                        st.session_state.wr_weights[idx] = allocated_portion
                                 
                                 if add_weight_clicked:
-                                    st.session_state.wr_weights[original_index] = st.session_state.wr_weights.get(original_index, 0.0) + weight
-                                    st.toast(f"Added {weight:.2f} kg. New total: {st.session_state.wr_weights.get(original_index, 0.0):.2f} kg. Click 'Save Draft' to persist.", icon="⚖️")
-                                else: # Get Weight
-                                    st.session_state.wr_weights[original_index] = weight
-                                    st.toast(f"Weight received: {weight:.2f} kg. Click 'Save Draft' to persist.", icon="⚖️")
+                                    st.toast(f"Added {total_scale_weight:.2f} kg to {num_selected} designs (Proportional).", icon="⚖️")
+                                else:
+                                    st.toast(f"Fetched {total_scale_weight:.2f} kg for {num_selected} designs (Proportional).", icon="⚖️")
                                 
                                 st.rerun()
                             else:
                                 st.warning(f"Unstable: {response_data.get('status')}", icon="⚠️")
                     else:
-                        st.warning("Please select a design to weigh by checking its box.")
+                        st.warning("Please select at least one design to weigh.")
 
                 if save_draft_clicked:
-                    idx_to_save = st.session_state.get('last_selected_index')
-                    if idx_to_save is not None:
-                        original_index = edited_df.loc[idx_to_save, "original_index"]
-                        weight_to_save = st.session_state.wr_weights.get(original_index, 0.0)
-                        remark_to_save = st.session_state.wr_remarks.get(original_index, "")
-                        
-                        with st.spinner("Saving draft..."):
+                    selected_indices = st.session_state.get('wr_selected_designs', set())
+                    if len(selected_indices) > 0:
+                        with st.spinner("Saving drafts..."):
                             sets_for_this_receipt = st.session_state.get('wr_sets_for_receipt', 0)
-                            services.weight_receipt.save_weight_receipt_draft(
-                                job_card=selected_jc_str,
-                                design_index=original_index,
-                                weight=weight_to_save,
-                                remark=remark_to_save,
-                                sets_for_this_receipt=sets_for_this_receipt
-                            )
-                            st.toast("Draft saved!", icon="📝")
-                            st.session_state.last_selected_index = None
-                            st.rerun()
+                            
+                            for idx in selected_indices:
+                                weight_to_save = st.session_state.wr_weights.get(idx, 0.0)
+                                remark_to_save = st.session_state.wr_remarks.get(idx, "")
+                                deduction_to_save = st.session_state.wr_design_deductions.get(idx, 0.0)
+                                
+                                # Determine sets to save: Row-specific for itemized, global for total
+                                item_sets_to_save = st.session_state.wr_design_sets.get(idx, sets_for_this_receipt) if is_itemized_mode else sets_for_this_receipt
+
+                                services.weight_receipt.save_weight_receipt_draft(
+                                    job_card=selected_jc_str,
+                                    design_index=idx,
+                                    weight=weight_to_save,
+                                    remark=remark_to_save,
+                                    sets_for_this_receipt=item_sets_to_save,
+                                    design_deduction=deduction_to_save
+                                )
+                            
+                            st.success(f"Draft saved for {len(selected_indices)} designs!")
                     else:
-                        st.warning("Please select a design to save.", icon="⚠️")
+                        st.warning("Please select designs to save.")
+
 
                 st.markdown("---")
 
                 if st.button("Save Weight Receipt", key="save_wr_button_loose"):
+                    # Check for existing save lock
+                    current_time = time.time()
+                    last_save_time = st.session_state.wr_save_locks.get(selected_jc_str, 0)
+                    if current_time - last_save_time < 30: # 30 seconds lock
+                        st.warning("Save already in progress. Please wait...", icon="⏳")
+                        st.stop()
+                    
+                    st.session_state.wr_save_locks[selected_jc_str] = current_time
+                    
                     weighed_designs = []
                     actual_total_weight = 0.0
+                    
                     for i, row in edited_df.iterrows():
                         actual_weight = row["Actual Wt."]
-                        if actual_weight <= 0:
-                            st.error(f"Please fetch a valid weight for all design items. Error at row {i+1}.")
-                            st.stop()
                         
-                        actual_total_weight += actual_weight
-                        original_design_data = designs[row['original_index']]
-                        weighed_design_data = original_design_data.copy()
-                        weighed_design_data['actual_weight'] = actual_weight
-                        weighed_design_data['remark'] = row["Remark"]
-                        weighed_designs.append(WeighedDesignDetail(**weighed_design_data))
+                        # Partial Weighing Logic: Only save items that have been weighed (>0)
+                        if actual_weight > 0:
+                            actual_total_weight += actual_weight
+                            original_design_data = designs[row['original_index']]
+                            weighed_design_data = original_design_data.copy()
+                            weighed_design_data['actual_weight'] = actual_weight
+                            weighed_design_data['actual_weight'] = actual_weight
+                            weighed_design_data['remark'] = row["Remark"]
+                            weighed_design_data['design_deduction'] = row["Deduction"]
+                            weighed_design_data['sets'] = row["Sets"] # Capture sets from grid
+                            weighed_designs.append(WeighedDesignDetail(**weighed_design_data))
+
+                    if not weighed_designs:
+                        st.error("Please weigh at least one item before saving.", icon="⚠️")
+                        st.stop()
+
 
                     # Validate cumulative weight for partial dispatch orders
                     if order_type in ["LOOSE_STRIPS", "EI_READY"]:
@@ -423,13 +632,20 @@ def render_weight_receipt_form():
                             st.session_state.wr_draft_data = {}
                             st.session_state.last_selected_index = None
                             
+                            # Clear lock on success
+                            if selected_jc_str in st.session_state.wr_save_locks:
+                                del st.session_state.wr_save_locks[selected_jc_str]
+
                             time.sleep(2)
                             st.rerun()
                         else:
                             st.error("Failed to save Weight Receipt.")
+                            # Clear lock on failure
+                            if selected_jc_str in st.session_state.wr_save_locks:
+                                del st.session_state.wr_save_locks[selected_jc_str]
             
             elif weight_entry_type == "Building Core":
-                _render_designs_grid(designs, drafts, editable=False)
+                _render_designs_grid(designs, drafts, is_itemized_mode=False, editable=False)
                 st.markdown("<h6>Enter Total Actual Weight & Remark:</h6>", unsafe_allow_html=True)
                 
                 # --- UI for Weight and Remark Inputs ---
@@ -484,6 +700,15 @@ def render_weight_receipt_form():
                         st.rerun()
                 st.markdown("---")
                 if st.button("Save Weight Receipt", key="save_wr_button_core"):
+                    # Check for existing save lock
+                    current_time = time.time()
+                    last_save_time = st.session_state.wr_save_locks.get(selected_jc_str, 0)
+                    if current_time - last_save_time < 30: # 30 seconds lock
+                        st.warning("Save already in progress. Please wait...", icon="⏳")
+                        st.stop()
+                    
+                    st.session_state.wr_save_locks[selected_jc_str] = current_time
+
                     actual_total_weight = st.session_state.get('wr_total_weight', 0.0)
 
                     if actual_total_weight <= 0:
@@ -546,6 +771,11 @@ def render_weight_receipt_form():
                             st.session_state.wr_total_weight = 0.0
                             st.session_state.wr_draft_data = {}
                             st.session_state.last_selected_index = None
+                            
+                            # Clear lock on success
+                            if selected_jc_str in st.session_state.wr_save_locks:
+                                del st.session_state.wr_save_locks[selected_jc_str]
+
                             time.sleep(2)
                             st.rerun()
                         else:
