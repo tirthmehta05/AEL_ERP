@@ -116,3 +116,7 @@ dmypy.json
 
 # Google Service Account Credentials
 credentials/
+-e 
+# Environment files
+*.env
+*.env.*
