@@ -72,11 +72,10 @@ class PDFService:
         qr.make(fit=True)
         img = qr.make_image(fill='black', back_color='white')
         
-        qr_bytes = io.BytesIO()
-        img.save(qr_bytes, format='PNG')
-        qr_bytes.seek(0)
-        
-        pdf.image(qr_bytes, x=qr_x, y=qr_y, w=qr_size, h=qr_size, type='PNG')
+        with io.BytesIO() as qr_bytes:
+            img.save(qr_bytes, format='PNG')
+            qr_bytes.seek(0)
+            pdf.image(qr_bytes, x=qr_x, y=qr_y, w=qr_size, h=qr_size, type='PNG')
 
     def generate_sticker_pdf(self, selected_coils: pd.DataFrame) -> bytes:
         """Generates a PDF with a 2x6 grid of stickers."""

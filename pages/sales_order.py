@@ -5,9 +5,8 @@ import pandas as pd
 import time
 import json
 
-from src.services import create_services
-
-from src.services import create_services, SalesOrderService
+from pages.shared.utils import get_services
+from src.services import SalesOrderService
 from src.data_entry.models.sales_order_models import SalesOrderRequest, DesignDetail, AssignedCoil
 from config import settings
 from pages.sales_order_components import render_coil_assignment_fields, render_assigned_coils_table
@@ -374,7 +373,7 @@ def render_full_coil_sale_form(service: SalesOrderService, dropdown_data):
     # Load dropdowns from RM Inward service
     @st.cache_resource(ttl=600)
     def load_rm_inward_dropdowns(_service: SalesOrderService):
-        app_services = create_services()
+        app_services = get_services()
         return app_services.rm_inward.get_dropdown_data()
 
     rm_inward_dropdowns = load_rm_inward_dropdowns(service)
@@ -472,7 +471,7 @@ def render_sales_order_form() -> None:
     #     except NameError:
     #         pass
 
-    services = create_services()
+    services = get_services()
     initialize_session_state()
 
     dropdown_data = load_dropdowns(services.sales_order)

@@ -1,7 +1,8 @@
 import json
 import streamlit as st
 import pandas as pd
-from src.services import create_services, AppServices
+from pages.shared.utils import get_services
+from src.services import AppServices
 from datetime import datetime, timedelta
 
 # --- Top-level Cached Functions ---
@@ -384,7 +385,7 @@ def render_pdf_generator_page():
     """Renders the main PDF Generator page with state-aware tabs."""
     st.title("📄 PDF Generator")
 
-    services = create_services()
+    services = get_services()
 
     # Map tabs to the cache functions they depend on.
     # This allows for targeted cache clearing.

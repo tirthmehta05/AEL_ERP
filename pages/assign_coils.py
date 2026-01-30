@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from src.services import create_services
+from pages.shared.utils import get_services
 from src.data_entry.models.sales_order_models import AssignedCoil
 from pages.sales_order_components import render_coil_assignment_fields, render_assigned_coils_table
 import json
@@ -8,7 +8,7 @@ import json
 def render_assign_coils_form():
     st.markdown("<h3>Assign Coils to Sales Order</h3>", unsafe_allow_html=True)
 
-    services = create_services()
+    services = get_services()
 
     pending_orders = services.sales_order.get_pending_sales_orders()
 

@@ -3,7 +3,8 @@ import pandas as pd
 from datetime import datetime, timedelta
 import json
 import time
-from src.services import create_services, SalesOrderService
+from pages.shared.utils import get_services
+from src.services import SalesOrderService
 from src.data_entry.models.weight_receipt_models import WeightReceiptRequest, WeighedDesignDetail
 
 
@@ -67,9 +68,16 @@ def _render_designs_grid(designs, drafts, is_itemized_mode=False, total_sets_in_
         
         # Sets Logic
         current_sets_val = 1
+        widget_key = f"sets_{i}"
+        
         if is_itemized_mode:
-            # Priority: Session -> Draft -> Design Item -> 1
-            if i in st.session_state.get('wr_design_sets', {}):
+            # Priority: Widget Key (Immediate Input) -> Session Dict -> Draft -> Design Item -> 1
+            if widget_key in st.session_state:
+                current_sets_val = st.session_state[widget_key]
+                # Sync back to persistence dict immediately
+                if 'wr_design_sets' not in st.session_state: st.session_state.wr_design_sets = {}
+                st.session_state.wr_design_sets[i] = current_sets_val
+            elif i in st.session_state.get('wr_design_sets', {}):
                  current_sets_val = st.session_state.wr_design_sets[i]
             else:
                  # Default to draft or original design value
@@ -78,7 +86,6 @@ def _render_designs_grid(designs, drafts, is_itemized_mode=False, total_sets_in_
                      current_sets_val = int(draft_sets)
                  else:
                      # Check if design has a default 'sets' value (e.g. from SO)
-                     # Note: design_item might be a dict or object. safely get.
                      current_sets_val = int(design_item.get('sets', 1))
         else:
              # In Total mode, the design item already has the scaled sets
@@ -203,7 +210,7 @@ def _render_designs_grid(designs, drafts, is_itemized_mode=False, total_sets_in_
 def render_weight_receipt_form():
     st.markdown("<h3>Create Weight Receipt</h3>", unsafe_allow_html=True)
 
-    services = create_services()
+    services = get_services()
     initialize_wr_session_state() # Call the new initialization function
 
     dropdown_data = load_so_dropdowns(services.sales_order)
