@@ -1,8 +1,8 @@
-from typing import List
+from typing import List, Optional
 from src.shared.utils.logger_config import setup_logger
 from src.data_entry.repository.weight_receipt_repository import WeightReceiptRepository
 from src.data_entry.models.weight_receipt_models import WeightReceiptRequest, WeightReceiptRecord
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import json
 import pandas as pd
 import requests
@@ -13,11 +13,37 @@ from src.shared.integrations.google_drive_service import google_drive_service
 logger = setup_logger(__name__)
 
 class WeightReceiptService:
+    # Internal cache for all weight receipts data to reduce API calls for number generation
+    _cached_all_weight_receipts_df: Optional[pd.DataFrame] = None
+    _cached_all_weight_receipts_timestamp: Optional[datetime] = None
+    _CACHE_TTL_SECONDS = 5 # Cache lifetime
+
     def __init__(self):
         self.repository = WeightReceiptRepository()
         self.weighing_scale_api_url = settings.api.weighing_scale_url
         self.google_service = google_drive_service
         self.spreadsheet_id = settings.api.google_sheets_id
+
+    def _get_or_refresh_all_weight_receipts(self, force_refresh: bool = False) -> pd.DataFrame:
+        """
+        Retrieves all weight receipts from the repository, using an internal cache.
+        If the cache is stale or force_refresh is True, it fetches new data.
+        """
+        current_time = datetime.now()
+        if (
+            not force_refresh and
+            self._cached_all_weight_receipts_df is not None and
+            self._cached_all_weight_receipts_timestamp is not None and
+            (current_time - self._cached_all_weight_receipts_timestamp).total_seconds() < self._CACHE_TTL_SECONDS
+        ):
+            logger.debug("Using cached all weight receipts DataFrame.")
+            return self._cached_all_weight_receipts_df
+        
+        logger.debug("Refreshing all weight receipts DataFrame (cache stale or forced).")
+        df = self.repository.get_all_weight_receipts()
+        self._cached_all_weight_receipts_df = df
+        self._cached_all_weight_receipts_timestamp = current_time
+        return df
 
     def get_next_weight_receipt_number(self) -> int:
         """
@@ -25,7 +51,9 @@ class WeightReceiptService:
         Starts from 10315 if no higher numeric-only number is found.
         """
         try:
-            df = self.repository.get_all_weight_receipts()
+            # Use the internally cached DataFrame
+            df = self._get_or_refresh_all_weight_receipts()
+            
             if df is None or df.empty or "WeightReceiptNumber" not in df.columns:
                 return 10315
 
@@ -43,6 +71,7 @@ class WeightReceiptService:
 
         except Exception as e:
             logger.error(f"Error generating next weight receipt number: {e}")
+            # Fallback to a timestamp-based unique number in case of error
             return int(datetime.now().timestamp())
 
     def generate_weight_receipt_number(self) -> str:
@@ -90,6 +119,7 @@ class WeightReceiptService:
             
             if success:
                 logger.info(f"Successfully saved Weight Receipt {request.weight_receipt_number}")
+                self._get_or_refresh_all_weight_receipts(force_refresh=True) # Refresh cache after save
                 return True
             else:
                 logger.error(f"Failed to save Weight Receipt {request.weight_receipt_number}.")
