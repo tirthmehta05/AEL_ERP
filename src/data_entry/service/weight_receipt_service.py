@@ -137,8 +137,12 @@ class WeightReceiptService:
 
             df['Date'] = pd.to_datetime(df['Date'], errors='coerce', dayfirst=True).dt.date
             
+            # Ensure PartyName is string, lowercase, and stripped for robust comparison
+            df['PartyName'] = df['PartyName'].astype(str).str.lower().str.strip()
+            processed_party_name = party_name.lower().strip()
+
             filtered_df = df[
-                (df['PartyName'] == party_name) &
+                (df['PartyName'] == processed_party_name) &
                 (df['Date'] >= start_date) &
                 (df['Date'] <= end_date)
             ]
@@ -192,7 +196,9 @@ class WeightReceiptService:
                 return 0
 
             # Filter for the specific job card
-            jc_receipts = df[df['JobCardNumber'] == job_card_number]
+            df['JobCardNumber'] = df['JobCardNumber'].astype(str).str.strip().str.lower()
+            processed_job_card_number = job_card_number.strip().lower()
+            jc_receipts = df[df['JobCardNumber'] == processed_job_card_number]
             if jc_receipts.empty:
                 return 0
 
@@ -217,7 +223,9 @@ class WeightReceiptService:
                 return 0.0
             
             # Filter for the specific job card
-            jc_entries = df[df['Job Card'] == job_card_number]
+            df['Job Card'] = df['Job Card'].astype(str).str.strip().str.lower()
+            processed_job_card_number = job_card_number.strip().lower()
+            jc_entries = df[df['Job Card'] == processed_job_card_number]
             if jc_entries.empty:
                 return 0.0
             
@@ -240,7 +248,9 @@ class WeightReceiptService:
                 return "CORE_BUILDING"
             
             # Find the job card
-            jc_row = df[df['job_card_number'] == job_card_number]
+            df['job_card_number'] = df['job_card_number'].astype(str).str.strip().str.lower()
+            processed_job_card_number = job_card_number.strip().lower()
+            jc_row = df[df['job_card_number'] == processed_job_card_number]
             if jc_row.empty:
                 return "CORE_BUILDING"
             

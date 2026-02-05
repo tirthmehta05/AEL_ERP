@@ -126,9 +126,13 @@ class SalesOrderService:
                     if df.empty or 'po_no' not in df.columns or 'party_name' not in df.columns:
                         request.run_child_flow = True
                     else:
+                        df['po_no'] = df['po_no'].astype(str).str.strip().str.lower()
+                        df['party_name'] = df['party_name'].astype(str).str.strip().str.lower()
+                        processed_po_no = request.po_no.strip().lower()
+                        processed_party_name = request.party_name.strip().lower()
                         matching_orders = df[
-                            (df['po_no'] == request.po_no) &
-                            (df['party_name'] == request.party_name)
+                            (df['po_no'] == processed_po_no) &
+                            (df['party_name'] == processed_party_name)
                         ]
                         if matching_orders.empty:
                             request.run_child_flow = True
@@ -361,8 +365,10 @@ class SalesOrderService:
 
             df['order_date'] = pd.to_datetime(df['order_date'], errors='coerce', dayfirst=True).dt.date
             
+            df['party_name'] = df['party_name'].astype(str).str.strip().str.lower()
+            processed_party_name = party_name.strip().lower()
             filtered_df = df[
-                (df['party_name'] == party_name) &
+                (df['party_name'] == processed_party_name) &
                 (df['order_date'] >= start_date) &
                 (df['order_date'] <= end_date)
             ]
