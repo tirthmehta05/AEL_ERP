@@ -142,15 +142,19 @@ class RMUsedService:
                 return 0.0
 
             # Get total weight from inward sheet
-            inward_coil_data = inward_df[inward_df["Coil Number"] == coil_no]
+            inward_df["Coil Number"] = inward_df["Coil Number"].astype(str).str.strip().str.lower()
+            processed_coil_no = coil_no.strip().lower()
+            inward_coil_data = inward_df[inward_df["Coil Number"] == processed_coil_no]
             if inward_coil_data.empty:
                 return 0.0
             total_weight = pd.to_numeric(inward_coil_data["Coil Weight"], errors='coerce').sum()
 
-            # Get used weight from used sheet
-            used_weight = 0.0
             if used_df is not None and not used_df.empty:
-                used_coil_data = used_df[used_df["Coil No"] == coil_no]
+                used_df["Coil No"] = used_df["Coil No"].astype(str).str.strip().str.lower()
+                # coil_no is already processed from the inward_df part, so we can reuse it if we are sure it's the same
+                # for safety, we'll re-process it here.
+                processed_coil_no = coil_no.strip().lower()
+                used_coil_data = used_df[used_df["Coil No"] == processed_coil_no]
                 if not used_coil_data.empty:
                     used_weight = pd.to_numeric(used_coil_data["Weight"], errors='coerce').sum()
             
@@ -177,7 +181,9 @@ class RMUsedService:
                 return None
 
             # Get coil data from inward sheet (single DataFrame filter)
-            inward_coil_data = inward_df[inward_df["Coil Number"] == coil_no]
+            inward_df["Coil Number"] = inward_df["Coil Number"].astype(str).str.strip().str.lower()
+            processed_coil_no = coil_no.strip().lower()
+            inward_coil_data = inward_df[inward_df["Coil Number"] == processed_coil_no]
             if inward_coil_data.empty:
                 return None
 
@@ -190,7 +196,9 @@ class RMUsedService:
             # Calculate used weight
             used_weight = 0.0
             if used_df is not None and not used_df.empty:
-                used_coil_data = used_df[used_df["Coil No"] == coil_no]
+                used_df["Coil No"] = used_df["Coil No"].astype(str).str.strip().str.lower()
+                processed_coil_no = coil_no.strip().lower()
+                used_coil_data = used_df[used_df["Coil No"] == processed_coil_no]
                 if not used_coil_data.empty:
                     used_weight = pd.to_numeric(used_coil_data["Weight"], errors='coerce').sum()
             
@@ -247,7 +255,9 @@ class RMUsedService:
             if df.empty or 'Card No' not in df.columns:
                 return []
 
-            coils_df = df[df['Card No'] == job_card_number]
+            df['Card No'] = df['Card No'].astype(str).str.strip().str.lower()
+            processed_job_card_number = job_card_number.strip().lower()
+            coils_df = df[df['Card No'] == processed_job_card_number]
             return coils_df.to_dict('records')
         except Exception as e:
             logger.error(f"Error fetching coils for job card {job_card_number}: {str(e)}")

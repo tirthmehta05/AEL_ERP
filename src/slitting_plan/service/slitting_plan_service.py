@@ -116,7 +116,9 @@ class SlittingPlanService:
         ]
 
         if material_type != "All":
-            filtered_df = filtered_df[filtered_df["Material Type"].str.strip() == material_type]
+            filtered_df['Material Type'] = filtered_df['Material Type'].astype(str).str.strip().str.lower()
+            processed_material_type = material_type.strip().lower()
+            filtered_df = filtered_df[filtered_df['Material Type'] == processed_material_type]
 
         filtered_df = filtered_df.copy()
 
@@ -259,7 +261,9 @@ class SlittingPlanService:
             if df.empty or 'PlanID' not in df.columns:
                 return {}
 
-            plan_series = df[df['PlanID'] == plan_id].iloc[0]
+            df['PlanID'] = df['PlanID'].astype(str).str.strip().str.lower()
+            processed_plan_id = plan_id.strip().lower()
+            plan_series = df[df['PlanID'] == processed_plan_id].iloc[0]
             if plan_series.empty:
                 return {}
 
