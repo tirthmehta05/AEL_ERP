@@ -19,6 +19,8 @@ class RMInwardIssueRequest(BaseModel):
     coil_weight: float = Field(..., gt=0, description="Coil Weight")
     po_number: Optional[str] = Field(default=None, description="PO Number")
     coil_supplier: str = Field(..., min_length=1, description="Coil Supplier")
+    slit_ready: str = Field(default="Ready", description="Slit/Ready")
+    rate: float = Field(default=0.0, ge=0, description="Rate")
     coil_location: str = Field(..., description="Coil Location")
 
     @field_validator("coil_weight", "thk", "width")
@@ -55,6 +57,8 @@ class RMInwardIssueRecord(BaseModel):
     coil_weight: float
     po_number: Optional[str] = None
     coil_supplier: str
+    slit_ready: str = "Ready"
+    rate: float = 0.0
     coil_location: str
 
     def to_list(self) -> list:
@@ -72,6 +76,8 @@ class RMInwardIssueRecord(BaseModel):
             None,  # No of Box / Coil
             self.po_number or "",
             self.coil_supplier,
+            self.slit_ready,
+            self.rate,
             None,  # RM Issue Date
             None,  # RM Issue Qty
             None,  # Material Issue Line
@@ -81,6 +87,7 @@ class RMInwardIssueRecord(BaseModel):
             None,  # RM Allocated Qty
             None,  # Balance RM pending
             None,  # Boxes Used
+            None,  # Balance Boxes
         ]
 
     def to_dict(self) -> dict:
@@ -97,6 +104,8 @@ class RMInwardIssueRecord(BaseModel):
             "Coil Weight": self.coil_weight,
             "PO Number": self.po_number,
             "Coil Supplier": self.coil_supplier,
+            "Slit/Ready": self.slit_ready,
+            "Rate": self.rate,
         }
 
 class DropdownData(BaseModel):

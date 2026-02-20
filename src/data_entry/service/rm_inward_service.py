@@ -298,6 +298,7 @@ class RMInwardService:
             "Width (mm)": "width",
             "Coating": "coating",
             "Coil Supplier": "supplier",
+            "Slit / Ready": "slit_ready",
         }
         for field_name, key in required_fields.items():
             if not form_data.get(key):
@@ -307,6 +308,14 @@ class RMInwardService:
             errors.append("Please enter a Coil Number.")
         if form_data.get("coil_weight", 0) <= 0:
             errors.append("Coil Weight must be greater than zero.")
+        
+        try:
+            if form_data.get("rate") is not None:
+                rate = float(form_data["rate"])
+                if rate < 0:
+                    errors.append("Rate cannot be negative.")
+        except (ValueError, TypeError):
+            errors.append("Rate must be a valid number.")
 
         try:
             if form_data.get("thk"):

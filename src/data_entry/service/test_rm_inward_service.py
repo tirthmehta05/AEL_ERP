@@ -30,7 +30,8 @@ def test_validate_single_entry_success(inward_service):
     inward_service.is_coil_number_unique = MagicMock(return_value=True)
     form_data = {
         'receipt_date': datetime.now().date(), 'rm_type': 'HR', 'grade': 'A', 'thk': '1', 'width': '1000',
-        'coating': 'None', 'supplier': 'JSW', 'coil_number': 'TEST001', 'coil_weight': 100
+        'coating': 'None', 'supplier': 'JSW', 'coil_number': 'TEST001', 'coil_weight': 100,
+        'slit_ready': 'Ready', 'rate': 55.5
     }
     errors = inward_service.validate_single_entry(form_data)
     assert not errors
@@ -38,7 +39,8 @@ def test_validate_single_entry_success(inward_service):
     # Test with float width
     form_data_float_width = {
         'receipt_date': datetime.now().date(), 'rm_type': 'HR', 'grade': 'A', 'thk': '1', 'width': '1000.5',
-        'coating': 'None', 'supplier': 'JSW', 'coil_number': 'TEST002', 'coil_weight': 100
+        'coating': 'None', 'supplier': 'JSW', 'coil_number': 'TEST002', 'coil_weight': 100,
+        'slit_ready': 'Ready', 'rate': 55.5
     }
     errors_float_width = inward_service.validate_single_entry(form_data_float_width)
     assert not errors_float_width
@@ -48,7 +50,8 @@ def test_validate_single_entry_fails_non_unique(inward_service):
     inward_service.is_coil_number_unique = MagicMock(return_value=False)
     form_data = {
         'receipt_date': datetime.now().date(), 'rm_type': 'HR', 'grade': 'A', 'thk': '1', 'width': '1000',
-        'coating': 'None', 'supplier': 'JSW', 'coil_number': 'TEST001', 'coil_weight': 100
+        'coating': 'None', 'supplier': 'JSW', 'coil_number': 'TEST001', 'coil_weight': 100,
+        'slit_ready': 'Ready', 'rate': 55.5
     }
     errors = inward_service.validate_single_entry(form_data)
     assert len(errors) == 1
@@ -81,12 +84,15 @@ def test_process_bulk_upload_df(inward_service):
         'Width': [1000, 1000, 1200],
         'Coat': ['C1', 'C1', 'C2'],
         'Weight': [100, 150, 200],
-        'Supplier': ['S1', 'S1', 'S2']
+        'Supplier': ['S1', 'S1', 'S2'],
+        'SR': ['Ready', 'Ready', 'Slit'],
+        'R': [50.0, 50.0, 60.0]
     })
     mapping = {
         'coil_number': 'Coil', 'rm_receipt_date': 'ReceiptDate', 'rm_type': 'Type',
         'grade': 'Grade', 'thk': 'Thk', 'width': 'Width', 'coating': 'Coat',
-        'coil_weight': 'Weight', 'coil_supplier': 'Supplier'
+        'coil_weight': 'Weight', 'coil_supplier': 'Supplier',
+        'slit_ready': 'SR', 'rate': 'R'
     }
     options = {"user_email": "test@test.com", "auto_generate_coil": False, "group_by_col": None}
     existing_coils = {'c0'}
@@ -97,6 +103,8 @@ def test_process_bulk_upload_df(inward_service):
     assert len(failed) == 0
     assert isinstance(valid[0], RMInwardIssueRequest)
     assert valid[0].coil_number == 'C1'
+    assert valid[0].slit_ready == 'Ready'
+    assert valid[0].rate == 50.0
 
 def test_process_bulk_upload_df_with_failures(inward_service):
     """Test bulk processing with a duplicate coil number."""
@@ -105,12 +113,15 @@ def test_process_bulk_upload_df_with_failures(inward_service):
         'ReceiptDate': [date(2025, 10, 28), date(2025, 10, 28), date(2025, 10, 28)],
         'Type': ['HR', 'HR', 'HR'], 'Grade': ['G1', 'G1', 'G1'], 'Thk': [1.0, 1.0, 1.0],
         'Width': [1000, 1000, 1000], 'Coat': ['C1', 'C1', 'C1'], 'Weight': [100, 150, 200],
-        'Supplier': ['S1', 'S1', 'S1']
+        'Supplier': ['S1', 'S1', 'S1'],
+        'SR': ['Ready', 'Ready', 'Ready'],
+        'R': [50.0, 50.0, 50.0]
     })
     mapping = {
         'coil_number': 'Coil', 'rm_receipt_date': 'ReceiptDate', 'rm_type': 'Type',
         'grade': 'Grade', 'thk': 'Thk', 'width': 'Width', 'coating': 'Coat',
-        'coil_weight': 'Weight', 'coil_supplier': 'Supplier'
+        'coil_weight': 'Weight', 'coil_supplier': 'Supplier',
+        'slit_ready': 'SR', 'rate': 'R'
     }
     options = {"user_email": "test@test.com", "auto_generate_coil": False, "group_by_col": None}
     existing_coils = set()

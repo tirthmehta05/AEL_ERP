@@ -28,7 +28,7 @@ def render_raw_material_inward_issue_form() -> None:
     if st.session_state.get("form_submitted_successfully", False):
         # Clear single entry form state
         keys_to_clear = ['receipt_date', 'rm_type', 'coil_number', 'coil_weight', 'po_number', 
-                         'grade', 'thk', 'width', 'coating', 'supplier', 'coil_location']
+                         'grade', 'thk', 'width', 'coating', 'supplier', 'coil_location', 'slit_ready', 'rate']
         for key in keys_to_clear:
             if key in st.session_state:
                 del st.session_state[key]
@@ -75,6 +75,8 @@ def render_raw_material_inward_issue_form() -> None:
             st.selectbox("Width (mm)", options=dropdowns.widths, index=None, placeholder="Select or type a Width", key="width", accept_new_options=True)
             st.selectbox("Coating", options=dropdowns.coatings, index=None, placeholder="Select or type a Coating", key="coating", accept_new_options=True)
             st.selectbox("Coil Supplier", options=dropdowns.suppliers, index=None, placeholder="Select or type a Supplier", key="supplier", accept_new_options=True)
+            st.selectbox("Slit / Ready", options=["Ready", "Slit"], index=0, key="slit_ready")
+            st.number_input("Rate (per Kg)", min_value=0.0, step=0.01, format="%.2f", key="rate")
 
         st.selectbox("Coil Location", options=["AEL Pune", "TAIIN"], index=0, key="coil_location")
 
@@ -97,6 +99,8 @@ def render_raw_material_inward_issue_form() -> None:
                     "coil_weight": st.session_state.coil_weight,
                     "po_number": st.session_state.po_number or None,
                     "coil_supplier": st.session_state.supplier,
+                    "slit_ready": st.session_state.slit_ready,
+                    "rate": st.session_state.rate,
                     "coil_location": st.session_state.coil_location,
                 }
                 st.session_state.rm_inward_entries.append(entry)
@@ -250,6 +254,7 @@ def render_raw_material_inward_issue_form() -> None:
                 "rm_receipt_date": "RM Receipt Date", "rm_type": "RM Type", "coil_number": "Coil Number",
                 "grade": "Grade", "thk": "Thk (mm)", "width": "Width (mm)", "coating": "Coating",
                 "coil_weight": "Coil Weight (kg)", "coil_supplier": "Coil Supplier",
+                "slit_ready": "Slit / Ready", "rate": "Rate",
                 "po_number": "PO Number (Optional)", "coil_location": "Coil Location"
             }
             if 'column_mapping' not in st.session_state:
