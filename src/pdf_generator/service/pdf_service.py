@@ -649,7 +649,7 @@ class PDFService:
 
         return bytes(pdf.output(dest='S'))
 
-    def _draw_weight_receipt(self, pdf: FPDF, receipt_data: dict):
+    def _draw_weight_receipt(self, pdf: FPDF, receipt_data: dict, rate: str = 'N/A'):
         """Draws a single Weight Receipt on the current PDF page."""
         pdf.add_page()
         pdf.set_auto_page_break(auto=True, margin=15) # Re-enable auto page break for multi-page documents
@@ -699,6 +699,12 @@ class PDFService:
         pdf.cell(25, line_height, "Job No", border='B')
         pdf.set_font("Helvetica", '', 12)
         pdf.cell(0, line_height, f": {job_no}", border='B,R', ln=True)
+
+        # Line 4: Rate
+        pdf.set_font("Helvetica", 'B', 12)
+        pdf.cell(20, line_height, "Rate", border='L,B')
+        pdf.set_font("Helvetica", '', 12)
+        pdf.cell(0, line_height, f": {rate}", border='B,R', ln=True)
         pdf.ln(10)
         
         # --- Items Table Header ---
@@ -878,6 +884,9 @@ class PDFService:
     def generate_weight_receipt_pdf(self, selected_receipts: List[dict]) -> bytes:
         """Generates a PDF for the selected weight receipts."""
         pdf = FPDF(orientation='P', unit='mm', format='A4')
+        sales_orders = self.sales_order_service.get_sales_orders_for_job_card(include_designs=False)
+        sales_order_rates = {so.get('job_card_number'): so.get('rate_per_kg', 'N/A') for so in sales_orders if so.get('job_card_number')}
         for receipt_data in selected_receipts:
-            self._draw_weight_receipt(pdf, receipt_data)
+            rate = sales_order_rates.get(receipt_data.get('JobCardNumber'), 'N/A')
+            self._draw_weight_receipt(pdf, receipt_data, rate)
         return bytes(pdf.output(dest='S'))
