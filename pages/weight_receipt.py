@@ -46,9 +46,9 @@ def _render_designs_grid(designs, drafts, is_itemized_mode=False, total_sets_in_
     In Itemized Mode, allows editing 'Sets' per row and calculates Expected Weight dynamically.
     In Total Mode, 'Sets' is read-only (already scaled in the input 'designs').
     """
-    # Header row: Select, Sets, Width, Length, Expected, Actual, Deduction, Remark
+    # Header row: Select, Sets, Width, Length, Expected, Actual, Design Deduction, Remark
     cols = st.columns([1, 1.5, 2, 2, 2, 2, 2, 3.5])
-    headers = ["Select", "Sets", "Width", "Length", "Expected", "Actual", "Deduction", "Remark"]
+    headers = ["Select", "Sets", "Width", "Length", "Expected", "Actual", "Design Deduction", "Remark"]
     for col, header in zip(cols, headers):
         col.markdown(f"**{header}**")
     
@@ -150,11 +150,11 @@ def _render_designs_grid(designs, drafts, is_itemized_mode=False, total_sets_in_
             )
             actual_wt = float(current_weight) if current_weight else 0.0
 
-        # 7. Deduction (Editable)
+        # 7. Design Deduction (Editable)
         with c7:
             if editable:
                 deduction_val = st.number_input(
-                    "Deduction",
+                    "Design Deduction",
                     value=float(current_deduction),
                     key=f"ded_{i}",
                     label_visibility="collapsed",
@@ -198,7 +198,7 @@ def _render_designs_grid(designs, drafts, is_itemized_mode=False, total_sets_in_
             "Length": design_item.get('length', 0),
             "Expected Wt.": expected_display_weight,
             "Actual Wt.": actual_wt,
-            "Deduction": deduction_val,
+            "Design Deduction": deduction_val,
             "Remark": remark,
             "original_index": i
         })
@@ -243,14 +243,29 @@ def render_weight_receipt_form():
                 drafts, draft_sets, draft_total_weight, draft_core_remark = services.weight_receipt.get_weight_receipt_drafts(selected_jc_str)
                 st.session_state.wr_draft_data = drafts or {}
                 
-                # When JC changes, reset the session state for weights and remarks
+                # When JC changes, reset the session state for weights, remarks, deductions, and selection
                 st.session_state.wr_weights = {}
                 st.session_state.wr_remarks = {}
-                st.session_state.wr_design_sets = {} # Reset design sets
+                st.session_state.wr_design_sets = {} 
+                st.session_state.wr_design_deductions = {}
+                st.session_state.wr_selected_designs = set()
 
+                # Crucial: Clear specific widget keys from session state to prevent StreamlitValueAboveMaxError
+                # and stale values in inputs. We clear up to a reasonable number of designs.
+                for i in range(50): # Assuming max 50 designs per JC
+                    for prefix in ['sets_', 'sel_', 'wt_', 'ded_', 'rem_']:
+                        key = f"{prefix}{i}"
+                        if key in st.session_state:
+                            del st.session_state[key]
+                
+                # Also clear global deduction input
+                if 'deduction_input' in st.session_state:
+                    del st.session_state['deduction_input']
 
                 if draft_total_weight is not None:
                     st.session_state.wr_total_weight = draft_total_weight
+                else:
+                    st.session_state.wr_total_weight = 0.0
                 
                 st.session_state.wr_core_remark = draft_core_remark or ""
 
@@ -568,6 +583,7 @@ def render_weight_receipt_form():
                     
                     weighed_designs = []
                     actual_total_weight = 0.0
+                    sum_design_deductions = 0.0
                     
                     for i, row in edited_df.iterrows():
                         actual_weight = row["Actual Wt."]
@@ -575,12 +591,12 @@ def render_weight_receipt_form():
                         # Partial Weighing Logic: Only save items that have been weighed (>0)
                         if actual_weight > 0:
                             actual_total_weight += actual_weight
+                            sum_design_deductions += row["Design Deduction"]
                             original_design_data = designs[row['original_index']]
                             weighed_design_data = original_design_data.copy()
                             weighed_design_data['actual_weight'] = actual_weight
-                            weighed_design_data['actual_weight'] = actual_weight
                             weighed_design_data['remark'] = row["Remark"]
-                            weighed_design_data['design_deduction'] = row["Deduction"]
+                            weighed_design_data['design_deduction'] = row["Design Deduction"]
                             weighed_design_data['sets'] = row["Sets"] # Capture sets from grid
                             weighed_designs.append(WeighedDesignDetail(**weighed_design_data))
 
@@ -588,6 +604,9 @@ def render_weight_receipt_form():
                         st.error("Please weigh at least one item before saving.", icon="⚠️")
                         st.stop()
 
+                    # In itemized mode, we use the sum of per-design deductions
+                    if is_itemized_mode:
+                        deduction = sum_design_deductions
 
                     # Validate cumulative weight for partial dispatch orders
                     if order_type in ["LOOSE_STRIPS", "EI_READY"]:
