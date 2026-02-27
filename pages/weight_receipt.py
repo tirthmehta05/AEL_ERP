@@ -217,13 +217,20 @@ def render_weight_receipt_form():
     party_names = dropdown_data.party_names
 
     # --- Filters ---
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col_refresh = st.columns([2, 2, 2, 1])
     with col1:
         selected_party = st.selectbox("Select Party", options=[""] + party_names)
     with col2:
         start_date = st.date_input("Start Date", datetime.now() - timedelta(days=30))
     with col3:
         end_date = st.date_input("End Date", datetime.now())
+    with col_refresh:
+        st.markdown("<br>", unsafe_allow_html=True)  # Vertical alignment
+        if st.button("🔄 Refresh", help="Clear cached job cards — use this after updating a Sales Order to see the latest designs"):
+            get_cached_job_cards.clear()
+            st.toast("Job card cache cleared.", icon="🔄")
+            st.rerun()
+
 
     if selected_party:
         job_cards = get_cached_job_cards(services.sales_order, selected_party, start_date, end_date)
