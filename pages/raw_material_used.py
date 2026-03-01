@@ -1,6 +1,7 @@
 import streamlit as st
 from datetime import datetime
 from pydantic import ValidationError
+import time
 
 from src.data_entry.service.rm_used_service import RMUsedService
 from src.data_entry.models.rm_used_models import RMUsedRequest
@@ -94,6 +95,12 @@ def render_raw_material_used_form() -> None:
         submitted = st.form_submit_button("Submit Used Entry")
         
         if submitted:
+            current_time = time.time()
+            if current_time - st.session_state.get('rm_used_submit_lock', 0) < 30:
+                st.warning("Save already in progress. Please wait...")
+                st.stop()
+            st.session_state.rm_used_submit_lock = current_time
+
             errors = []
             if st.session_state.rm_used_date > datetime.now().date():
                 errors.append("Date cannot be in the future.")
@@ -127,6 +134,7 @@ def render_raw_material_used_form() -> None:
                     errors.append(f"Entered weight ({weight_float:.2f} kg) exceeds available weight ({st.session_state.available_weight:.2f} kg).")
 
             if errors:
+                st.session_state.rm_used_submit_lock = 0
                 st.warning("Please correct the following errors:\n\n" + "\n".join([f"- {e}" for e in errors]))
             else:
                 try:
@@ -146,15 +154,19 @@ def render_raw_material_used_form() -> None:
                     if success:
                         st.success("Raw Material Used entry submitted successfully!")
                         load_dropdowns.clear()
+                        st.session_state.rm_used_submit_lock = 0
                         st.session_state.form_submitted_successfully = True
                         st.rerun()
                     else:
+                        st.session_state.rm_used_submit_lock = 0
                         st.error("Failed to save the entry. Please check application logs.")
 
                 except ValidationError as e:
+                    st.session_state.rm_used_submit_lock = 0
                     error_msgs = [f"- **{err['loc'][0]}**: {err['msg']}" for err in e.errors()]
                     st.error("Data validation failed:\n" + "\n".join(error_msgs))
                 except Exception as e:
+                    st.session_state.rm_used_submit_lock = 0
                     st.error(f"An unexpected error occurred: {e}")
 
     st.markdown("</div>", unsafe_allow_html=True) # Close card-body
