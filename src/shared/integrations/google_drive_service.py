@@ -18,6 +18,11 @@ from config import settings
 logger = setup_logger(__name__)
 
 
+class RateLimitError(Exception):
+    """Raised when the Google Sheets API rate limit is exceeded."""
+    pass
+
+
 class GoogleDriveService:
     """
     Google Drive Integration Service for AEL ERP System
@@ -316,6 +321,65 @@ class GoogleDriveService:
             return False
         except Exception as e:
             logger.error(f"Error upserting data in '{worksheet_name}': {str(e)}")
+            return False
+
+    def delete_rows_by_key(self, spreadsheet_id: str, worksheet_name: str, key_value: str, key_column_index: int = 0) -> bool:
+        """Deletes all rows where the key column matches the given value. Deletes from bottom to top to preserve row indices."""
+        try:
+            if not self.client:
+                raise Exception("Google Drive client not initialized")
+
+            spreadsheet = self._execute_with_retry(self.client.open_by_key, spreadsheet_id)
+            worksheet = self._execute_with_retry(spreadsheet.worksheet, worksheet_name)
+
+            cell_list = self._execute_with_retry(worksheet.findall, key_value, in_column=key_column_index + 1)
+
+            if not cell_list:
+                logger.info(f"No rows found for key '{key_value}' in '{worksheet_name}'. Nothing to delete.")
+                return True
+
+            # Delete from bottom to top so row indices don't shift
+            rows_to_delete = sorted([cell.row for cell in cell_list], reverse=True)
+            for row_index in rows_to_delete:
+                self._execute_with_retry(worksheet.delete_rows, row_index)
+
+            logger.info(f"Deleted {len(rows_to_delete)} rows for key '{key_value}' in '{worksheet_name}'.")
+            return True
+        except RateLimitError:
+            raise
+        except APIError as e:
+            logger.error(f"A gspread API error occurred while deleting rows in '{worksheet_name}': {str(e)}")
+            return False
+        except Exception as e:
+            logger.error(f"Error deleting rows in '{worksheet_name}': {str(e)}")
+            return False
+
+    def update_cell_by_key(self, spreadsheet_id: str, worksheet_name: str, key_value: str, key_column_index: int, target_column_index: int, new_value: str) -> bool:
+        """Finds the first row where key_column matches key_value, then updates the cell at target_column_index."""
+        try:
+            if not self.client:
+                raise Exception("Google Drive client not initialized")
+
+            spreadsheet = self._execute_with_retry(self.client.open_by_key, spreadsheet_id)
+            worksheet = self._execute_with_retry(spreadsheet.worksheet, worksheet_name)
+
+            cell = self._execute_with_retry(worksheet.find, key_value, in_column=key_column_index + 1)
+
+            if not cell:
+                logger.error(f"Key '{key_value}' not found in column {key_column_index + 1} of '{worksheet_name}'.")
+                return False
+
+            # target_column_index is 0-based, update_cell expects 1-based column
+            self._execute_with_retry(worksheet.update_cell, cell.row, target_column_index + 1, new_value)
+            logger.info(f"Updated column {target_column_index + 1} in row {cell.row} for key '{key_value}' in '{worksheet_name}'.")
+            return True
+        except RateLimitError:
+            raise
+        except APIError as e:
+            logger.error(f"A gspread API error occurred while updating cell in '{worksheet_name}': {str(e)}")
+            return False
+        except Exception as e:
+            logger.error(f"Error updating cell in '{worksheet_name}': {str(e)}")
             return False
 
 

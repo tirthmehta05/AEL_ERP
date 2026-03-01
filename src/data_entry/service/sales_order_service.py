@@ -2,8 +2,8 @@ from typing import List
 import requests
 import msal
 from src.shared.utils.logger_config import setup_logger
-from src.shared.integrations.google_drive_service import google_drive_service
-from src.data_entry.models.sales_order_models import SalesOrderRequest, SalesOrderDropdownData, PowerAutomatePlannerRequest, FullCoilSaleRequest
+from src.shared.integrations.google_drive_service import google_drive_service, RateLimitError
+from src.data_entry.models.sales_order_models import SalesOrderRequest, SalesOrderDropdownData, PowerAutomatePlannerRequest, FullCoilSaleRequest, DesignDetail
 from src.data_entry.service.rm_used_service import RMUsedService
 from src.data_entry.models.rm_used_models import RMUsedRequest
 from config import settings
@@ -383,3 +383,91 @@ class SalesOrderService:
         This is a delegation to the RMUsedService for architectural clarity.
         """
         return self.rm_used_service.get_all_used_coils_df()
+
+    def get_sales_orders_by_party(self, party_name: str) -> List[dict]:
+        """Fetches all job cards from 'Sales Order-JC' for a given party name, with designs included."""
+        try:
+            df = self.google_service.get_worksheet_data(self.spreadsheet_id, "Sales Order-JC", header_row=1)
+            if df.empty or 'party_name' not in df.columns:
+                return []
+
+            df['party_name_lower'] = df['party_name'].astype(str).str.strip().str.lower()
+            processed_party_name = party_name.strip().lower()
+
+            filtered_df = df[df['party_name_lower'] == processed_party_name].copy()
+            filtered_df = filtered_df.drop(columns=['party_name_lower'])
+
+            return filtered_df.to_dict('records')
+        except RateLimitError:
+            raise
+        except Exception as e:
+            logger.error(f"Error fetching sales orders for party {party_name}: {str(e)}")
+            return []
+
+    def update_sales_order_designs(self, job_card_number: str, updated_designs: List[DesignDetail], jc_data: dict) -> bool:
+        """Updates the designs for an existing sales order in both sheets.
+
+        Steps:
+        1. Update the designs_json cell in 'Sales Order-JC'
+        2. Delete all existing rows for this job card in the flat 'Sales Order' sheet
+        3. Re-insert the updated design rows into the flat 'Sales Order' sheet
+        """
+        try:
+            # Step 1: Update designs_json in Sales Order-JC
+            # The 'job_card_number' is in column index 4 (5th column) in the JC sheet
+            # The 'designs_json' is in column index 10 (11th column) in the JC sheet
+            new_designs_json = json.dumps([d.model_dump() for d in updated_designs])
+            success_jc = self.google_service.update_cell_by_key(
+                self.spreadsheet_id, "Sales Order-JC",
+                key_value=job_card_number,
+                key_column_index=4,  # job_card_number column
+                target_column_index=10,  # designs_json column
+                new_value=new_designs_json
+            )
+            if not success_jc:
+                logger.error(f"Failed to update designs_json in Sales Order-JC for {job_card_number}.")
+                return False
+
+            # Step 2: Delete old rows from flat 'Sales Order' sheet
+            # 'Job Card' is the first column (index 0) in the Sales Order sheet
+            delete_success = self.google_service.delete_rows_by_key(
+                self.spreadsheet_id, "Sales Order",
+                key_value=job_card_number,
+                key_column_index=0
+            )
+            if not delete_success:
+                logger.error(f"Failed to delete old design rows for {job_card_number} from 'Sales Order' sheet.")
+                return False
+
+            # Step 3: Re-insert updated rows into flat 'Sales Order' sheet
+            # Reconstruct header data from jc_data for the flat sheet row format
+            order_date_str = str(jc_data.get('order_date', ''))
+            po_no = str(jc_data.get('po_no', ''))
+            party_name = str(jc_data.get('party_name', ''))
+            delivery_date_str = str(jc_data.get('delivery_date', ''))
+            hole_size = jc_data.get('hole_size', '')
+            rate_per_kg = jc_data.get('rate_per_kg', '')
+
+            sales_order_rows = []
+            for design in updated_designs:
+                sales_order_rows.append([
+                    job_card_number, order_date_str, po_no,
+                    design.party_job_no, party_name, design.width, design.length, design.mm_stack,
+                    design.pcs, hole_size, design.hole, design.sets, design.weight, design.type,
+                    design.thk, rate_per_kg, delivery_date_str, design.fm_name
+                ])
+
+            logger.info(f"Re-inserting {len(sales_order_rows)} updated rows for {job_card_number} into 'Sales Order' sheet.")
+            success_so = self.google_service.insert_row_before_last(self.spreadsheet_id, "Sales Order", sales_order_rows)
+
+            if not success_so:
+                logger.error(f"Failed to re-insert updated design rows for {job_card_number}.")
+                return False
+
+            logger.info(f"Successfully updated Sales Order {job_card_number} designs in both sheets.")
+            return True
+        except RateLimitError:
+            raise
+        except Exception as e:
+            logger.error(f"Error updating sales order designs for {job_card_number}: {str(e)}")
+            return False

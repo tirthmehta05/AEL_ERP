@@ -4,6 +4,7 @@ from pages.shared.utils import get_services
 from src.data_entry.models.sales_order_models import AssignedCoil
 from pages.sales_order_components import render_coil_assignment_fields, render_assigned_coils_table
 import json
+import time
 
 def render_assign_coils_form():
     st.markdown("<h3>Assign Coils to Sales Order</h3>", unsafe_allow_html=True)
@@ -39,31 +40,45 @@ def render_assign_coils_form():
         render_assigned_coils_table()
 
         if st.button("Save Coil Assignment"):
+            current_time = time.time()
+            if current_time - st.session_state.get('assign_coils_save_lock', 0) < 30:
+                st.warning("Save already in progress. Please wait...")
+                st.stop()
+            st.session_state.assign_coils_save_lock = current_time
+
             if not st.session_state.so_assigned_coils:
+                st.session_state.assign_coils_save_lock = 0
                 st.error("Please assign at least one coil.")
                 return
 
             # Weight validation
             total_design_weight = sum(d.get('weight', 0) for d in designs)
             total_coil_weight = sum(c.get('weight_used', 0) for c in st.session_state.so_assigned_coils)
-            
+
             lower_bound = total_design_weight * 0.99
             upper_bound = total_design_weight * 1.01
 
             if not (lower_bound <= total_coil_weight <= upper_bound):
+                st.session_state.assign_coils_save_lock = 0
                 st.error(f"Weight Mismatch: Total assigned coil weight ({total_coil_weight:.2f} kg) is not within 1% of the total design weight ({total_design_weight:.2f} kg).")
                 return
 
-            with st.spinner("Saving coil assignment..."):
-                assigned_coils = [AssignedCoil(**c) for c in st.session_state.so_assigned_coils]
-                success = services.sales_order.assign_coils_to_sales_order(
-                    job_card_number=selected_order['job_card_number'],
-                    assigned_coils=assigned_coils
-                )
-                if success:
-                    st.success("Coil assignment saved successfully!")
-                    st.session_state.so_assigned_coils = []
-                    st.session_state.selected_so_for_assignment = None
-                    st.rerun()
-                else:
-                    st.error("Failed to save coil assignment.")
+            try:
+                with st.spinner("Saving coil assignment..."):
+                    assigned_coils = [AssignedCoil(**c) for c in st.session_state.so_assigned_coils]
+                    success = services.sales_order.assign_coils_to_sales_order(
+                        job_card_number=selected_order['job_card_number'],
+                        assigned_coils=assigned_coils
+                    )
+                    if success:
+                        st.success("Coil assignment saved successfully!")
+                        st.session_state.assign_coils_save_lock = 0
+                        st.session_state.so_assigned_coils = []
+                        st.session_state.selected_so_for_assignment = None
+                        st.rerun()
+                    else:
+                        st.session_state.assign_coils_save_lock = 0
+                        st.error("Failed to save coil assignment.")
+            except Exception as e:
+                st.session_state.assign_coils_save_lock = 0
+                st.error("A temporary error occurred (possibly rate limit). Please try saving again.")

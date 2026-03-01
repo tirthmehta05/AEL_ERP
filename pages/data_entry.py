@@ -56,6 +56,10 @@ def render() -> None:
                     cache_func.clear()
             else:
                 cache_to_clear_func.clear()
+
+            if tab_to_clear == "Raw Material Inward Issue":
+                st.session_state.pop('coil_number_input', None)
+
             st.toast(f"Cache for '{tab_to_clear}' cleared!")
 
         # Override the index ONLY for this refresh run

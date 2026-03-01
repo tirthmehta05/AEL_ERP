@@ -10,6 +10,9 @@ from src.services import SalesOrderService
 from src.data_entry.models.sales_order_models import SalesOrderRequest, DesignDetail, AssignedCoil
 from config import settings
 from pages.sales_order_components import render_coil_assignment_fields, render_assigned_coils_table
+from src.shared.utils.logger_config import setup_logger
+
+logger = setup_logger(__name__)
 
 # --- FM Data ---
 FM_DATA = {
@@ -312,21 +315,50 @@ def render_designs_table():
 
 
 
+def _clear_so_form_state():
+    """Clears all sales order form state keys, preserving the save lock to block rapid clicks."""
+    lock_keys = {'so_save_lock', 'fcs_save_lock', 'so_save_in_flight', 'so_save_completed'}
+    keys_to_clear = [key for key in list(st.session_state.keys())
+                     if (key.startswith('so_') or key.startswith('design_') or key.startswith('assign_') or key.startswith('ready_'))
+                     and key not in lock_keys]
+    for key in keys_to_clear:
+        if key in st.session_state:
+            del st.session_state[key]
+
+
 def handle_final_submission(service: SalesOrderService):
     """Handles the final submission of the entire sales order."""
+    run_id = f"{time.time():.3f}"
+    logger.info(f"[SO-SAVE][{run_id}] handle_final_submission ENTERED")
+
+    # --- Lock: prevent duplicate API calls from rapid clicks ---
+    current_time = time.time()
+    lock_age = current_time - st.session_state.get('so_save_lock', 0)
+    logger.info(f"[SO-SAVE][{run_id}] Lock check: age={lock_age:.1f}s, locked={'YES' if lock_age < 30 else 'NO'}")
+    if lock_age < 30:
+        st.warning("Save already in progress. Please wait...")
+        st.stop()
+    st.session_state.so_save_lock = current_time
+
     if not st.session_state.so_designs:
-        st.error("Please add at least one design.")
+        logger.info(f"[SO-SAVE][{run_id}] Early return: no designs")
+        st.session_state.so_save_lock = 0
+        # Only show error if this is a genuine user click, not a queued click after recovery
+        if not st.session_state.get('so_save_success_msg'):
+            st.error("Please add at least one design.")
         return
 
     # If coils are assigned, validate the weight
     if st.session_state.so_assigned_coils:
         total_design_weight = sum(d.get('weight', 0) for d in st.session_state.so_designs)
         total_coil_weight = sum(c.get('weight_used', 0) for c in st.session_state.so_assigned_coils)
-        
+
         lower_bound = total_design_weight * 0.99
         upper_bound = total_design_weight * 1.01
 
         if not (lower_bound <= total_coil_weight <= upper_bound):
+            logger.info(f"[SO-SAVE][{run_id}] Early return: weight mismatch")
+            st.session_state.so_save_lock = 0
             st.error(f"Weight Mismatch: Total assigned coil weight ({total_coil_weight:.2f} kg) is not within 1% of the total design weight ({total_design_weight:.2f} kg).")
             return
 
@@ -345,22 +377,48 @@ def handle_final_submission(service: SalesOrderService):
             designs=[DesignDetail(**d) for d in st.session_state.so_designs],
             assigned_coils=[AssignedCoil(**c) for c in st.session_state.so_assigned_coils],
         )
+
+        # Mark save as in-flight BEFORE the API call.
+        # If Streamlit interrupts the script mid-call, this flag survives in session state
+        # and the recovery block at top of render_sales_order_form() will clear the form.
+        st.session_state.so_save_in_flight = request.model_dump(mode='json')
+        logger.info(f"[SO-SAVE][{run_id}] Calling save_sales_order for {request.job_card_number}...")
+
         with st.spinner("Saving full order..."):
             success = service.save_sales_order(request)
+        logger.info(f"[SO-SAVE][{run_id}] save_sales_order returned success={success}")
+
         if success:
+            # Upgrade flag: save succeeded, PA still pending.
+            st.session_state.so_save_completed = st.session_state.pop('so_save_in_flight', None)
+
             st.success(f"Sales Order {request.job_card_number} saved successfully!")
+            logger.info(f"[SO-SAVE][{run_id}] Calling invoke_power_automate_flow for {request.job_card_number}...")
             service.invoke_power_automate_flow(request)
-            time.sleep(2)
+            logger.info(f"[SO-SAVE][{run_id}] PA completed for {request.job_card_number}")
+
+            # All done — clear the completed flag and form state
+            st.session_state.pop('so_save_completed', None)
+            logger.info(f"[SO-SAVE][{run_id}] Clearing state and rerunning...")
             load_dropdowns.clear()
-            # Clear all relevant session state keys
-            keys_to_clear = [key for key in st.session_state.keys() if key.startswith('so_') or key.startswith('design_') or key.startswith('assign_') or key.startswith('ready_')]
-            for key in keys_to_clear:
-                if key in st.session_state: del st.session_state[key]
+            _clear_so_form_state()
+            time.sleep(2)
             st.rerun()
         else:
+            st.session_state.pop('so_save_in_flight', None)
+            st.session_state.so_save_lock = 0
+            logger.warning(f"[SO-SAVE][{run_id}] save_sales_order returned False")
             st.error("Failed to save the sales order.")
     except ValidationError as e:
+        st.session_state.pop('so_save_in_flight', None)
+        st.session_state.so_save_lock = 0
+        logger.error(f"[SO-SAVE][{run_id}] ValidationError: {e}")
         st.error(f"Final validation failed: {e}")
+    except Exception as e:
+        st.session_state.pop('so_save_in_flight', None)
+        st.session_state.so_save_lock = 0
+        logger.error(f"[SO-SAVE][{run_id}] Exception: {e}")
+        st.error("A temporary error occurred (possibly rate limit). Please try saving again.")
 
 def render_full_coil_sale_form(service: SalesOrderService, dropdown_data):
     """Renders the form for Full Coil Sale."""
@@ -419,9 +477,15 @@ def render_full_coil_sale_form(service: SalesOrderService, dropdown_data):
 
     st.markdown("---")
     if st.button("Save Full Coil Sale"):
+        current_time = time.time()
+        if current_time - st.session_state.get('fcs_save_lock', 0) < 30:
+            st.warning("Save already in progress. Please wait...")
+            st.stop()
+        st.session_state.fcs_save_lock = current_time
+
         try:
             from src.data_entry.models.sales_order_models import FullCoilSaleRequest
-            
+
             job_card = st.session_state.fcs_job_card_generated if not st.session_state.fcs_manual_job_card else st.session_state.fcs_job_card
 
             request = FullCoilSaleRequest(
@@ -443,6 +507,7 @@ def render_full_coil_sale_form(service: SalesOrderService, dropdown_data):
                 success = service.save_full_coil_sale(request)
             if success:
                 st.success(f"Full Coil Sale {request.job_card} saved successfully!")
+                st.session_state.fcs_save_lock = 0
                 time.sleep(2)
                 # Clear relevant session state keys for FCS
                 keys_to_clear = [key for key in st.session_state.keys() if key.startswith('fcs_')]
@@ -450,11 +515,278 @@ def render_full_coil_sale_form(service: SalesOrderService, dropdown_data):
                     if key in st.session_state: del st.session_state[key]
                 st.rerun()
             else:
+                st.session_state.fcs_save_lock = 0
                 st.error("Failed to save the Full Coil Sale order.")
         except ValidationError as e:
+            st.session_state.fcs_save_lock = 0
             st.error(f"Validation failed: {e}")
         except Exception as e:
+            st.session_state.fcs_save_lock = 0
             st.error(f"An error occurred: {e}")
+
+
+def render_update_sales_order(service: SalesOrderService, dropdown_data):
+    """Renders the Update Sales Order section for editing existing designs."""
+    # --- Session State Initialization ---
+    if 'upd_designs' not in st.session_state:
+        st.session_state.upd_designs = []
+    if 'upd_jc_data' not in st.session_state:
+        st.session_state.upd_jc_data = None
+    if 'upd_loaded_jc' not in st.session_state:
+        st.session_state.upd_loaded_jc = None
+    if 'upd_save_lock' not in st.session_state:
+        st.session_state.upd_save_lock = 0
+
+    # --- Recovery: handle a save that completed but was interrupted before rerun ---
+    # If upd_save_completed is set, the API call succeeded. We clear all form state
+    # here (on the next render cycle) to guarantee a clean slate.
+    if st.session_state.pop('upd_save_completed', None):
+        st.session_state.upd_save_lock = 0
+        st.session_state.upd_loaded_jc = None
+        st.session_state.upd_designs = []
+        st.session_state.upd_jc_data = None
+        load_dropdowns.clear()
+        st.toast("Sales Order updated successfully!", icon="✅")
+        st.rerun()
+
+    # --- Step 1: Select Party Name ---
+    upd_party = st.selectbox(
+        "Party Name",
+        options=dropdown_data.party_names,
+        index=None,
+        placeholder="Select a Party to update",
+        key="upd_party_name"
+    )
+
+    if not upd_party:
+        st.info("Select a Party Name to load their Sales Orders.")
+        return
+
+    # --- Step 2: Fetch and Select Job Card ---
+    with st.spinner("Loading job cards..."):
+        job_cards = service.get_sales_orders_by_party(upd_party)
+
+    if not job_cards:
+        st.warning("No Sales Orders found for this party.")
+        return
+
+    jc_options = {jc.get('job_card_number', 'N/A'): jc for jc in job_cards}
+    selected_jc_key = st.selectbox(
+        "Select Job Card to Update",
+        options=[""] + list(jc_options.keys()),
+        key="upd_selected_jc"
+    )
+
+    if not selected_jc_key:
+        return
+
+    selected_jc = jc_options[selected_jc_key]
+
+    # Load designs when a new JC is selected
+    if st.session_state.upd_loaded_jc != selected_jc_key:
+        try:
+            designs_raw = json.loads(selected_jc.get('designs_json', '[]'))
+        except (json.JSONDecodeError, TypeError):
+            designs_raw = []
+        st.session_state.upd_designs = designs_raw
+        st.session_state.upd_jc_data = selected_jc
+        st.session_state.upd_loaded_jc = selected_jc_key
+
+    # --- Step 3: Display Order Header (Read-Only) ---
+    st.markdown("---")
+    st.markdown("<h6>Order Details (Read-Only)</h6>", unsafe_allow_html=True)
+    hcol1, hcol2, hcol3, hcol4 = st.columns(4)
+    hcol1.text_input("Job Card", value=selected_jc_key, disabled=True, key="upd_disp_jc")
+    hcol2.text_input("Order Date", value=str(selected_jc.get('order_date', '')), disabled=True, key="upd_disp_date")
+    hcol3.text_input("PO No.", value=str(selected_jc.get('po_no', '')), disabled=True, key="upd_disp_po")
+    hcol4.text_input("Rate/Kg", value=str(selected_jc.get('rate_per_kg', '')), disabled=True, key="upd_disp_rate")
+
+    # --- Step 4: Editable Designs Table ---
+    st.markdown("---")
+    st.markdown("<h6>Edit Existing Designs</h6>", unsafe_allow_html=True)
+
+    if not st.session_state.upd_designs:
+        st.info("No designs found for this Job Card.")
+    else:
+        df = pd.DataFrame(st.session_state.upd_designs)
+
+        # Define which columns are editable and their display config
+        editable_columns = ['width', 'length', 'weight', 'mm_stack', 'sets', 'hole', 'thk', 'remark']
+        column_config = {
+            "width": st.column_config.NumberColumn("Width (mm)", format="%.2f"),
+            "length": st.column_config.NumberColumn("Length (mm)", format="%.2f"),
+            "weight": st.column_config.NumberColumn("Weight (kg)", format="%.2f"),
+            "mm_stack": st.column_config.NumberColumn("Stack (mm)", format="%.1f"),
+            "sets": st.column_config.NumberColumn("Sets", format="%d"),
+            "hole": st.column_config.TextColumn("Hole"),
+            "thk": st.column_config.NumberColumn("Thickness (mm)", format="%.2f"),
+            "remark": st.column_config.TextColumn("Remark"),
+            "pcs": st.column_config.NumberColumn("Pieces", disabled=True),
+            "type": st.column_config.TextColumn("Type", disabled=True),
+            "party_job_no": st.column_config.TextColumn("Party Job No", disabled=True),
+            "grade": st.column_config.TextColumn("Grade", disabled=True),
+            "coating": st.column_config.TextColumn("Coating", disabled=True),
+            "fm_name": st.column_config.TextColumn("FM Name", disabled=True),
+        }
+
+        # Only show columns that exist in the data
+        visible_columns = [c for c in ['width', 'length', 'weight', 'mm_stack', 'sets', 'hole', 'thk', 'remark', 'pcs', 'type'] if c in df.columns]
+
+        # Cast string columns to str so pandas doesn't infer None as float64,
+        # which would make TextColumn incompatible with the underlying dtype.
+        for str_col in ['remark', 'hole', 'type']:
+            if str_col in df.columns:
+                df[str_col] = df[str_col].fillna('').astype(str)
+
+        edited_df = st.data_editor(
+            df[visible_columns] if visible_columns else df,
+            num_rows="dynamic",
+            key="upd_designs_editor",
+            use_container_width=True,
+            column_config=column_config
+        )
+
+        # Sync edits back — merge edited columns into the full design dicts
+        if len(edited_df) != len(st.session_state.upd_designs):
+            # Rows were added or deleted via data_editor
+            st.session_state.upd_designs = edited_df.to_dict('records')
+            st.rerun()
+        else:
+            # Update existing rows with edits
+            for i, row in edited_df.iterrows():
+                if i < len(st.session_state.upd_designs):
+                    for col in editable_columns:
+                        if col in row:
+                            st.session_state.upd_designs[i][col] = row[col]
+
+    # --- Step 5: Add New Design Sub-Form ---
+    st.markdown("---")
+    with st.expander("➕ Add New Design"):
+        nc1, nc2, nc3, nc4 = st.columns(4)
+        with nc1:
+            new_width = st.number_input("Width (mm)", min_value=0.0, step=1.0, format="%.2f", key="upd_new_width")
+            new_sets = st.number_input("Sets", min_value=1, step=1, key="upd_new_sets")
+        with nc2:
+            new_length = st.number_input("Length (mm)", min_value=0.0, step=1.0, format="%.2f", key="upd_new_length")
+            new_thk = st.number_input("Thickness (mm)", min_value=0.0, step=0.01, format="%.2f", key="upd_new_thk")
+        with nc3:
+            new_hole = st.selectbox("Hole", options=["Plain", "Centre", "Both Side", "Side", "3-Hole", "5-Hole", "Daimond", "V-Noch"], key="upd_new_hole")
+            new_weight = st.number_input("Weight (kg)", min_value=0.0, step=1.0, format="%.2f", key="upd_new_weight")
+        with nc4:
+            new_mm_stack = st.number_input("Stack (mm)", min_value=0.0, step=1.0, format="%.1f", key="upd_new_mm_stack")
+            new_remark = st.text_input("Remark (Optional)", key="upd_new_remark")
+
+        if st.button("Add Design", key="upd_add_design_btn"):
+            if new_width <= 0 or new_length <= 0:
+                st.error("Width and Length must be greater than zero.")
+            elif new_thk <= 0:
+                st.error("Thickness must be greater than zero.")
+            else:
+                # Calculate pcs from mm_stack and thk
+                pcs = int(new_mm_stack / new_thk) if new_thk > 0 and new_mm_stack > 0 else 0
+
+                # Infer type from the first existing design, or default
+                design_type = "CRNO"
+                if st.session_state.upd_designs:
+                    design_type = st.session_state.upd_designs[0].get('type', 'CRNO')
+
+                new_design = {
+                    'width': new_width,
+                    'length': new_length,
+                    'weight': new_weight,
+                    'mm_stack': new_mm_stack,
+                    'sets': new_sets,
+                    'hole': new_hole,
+                    'thk': new_thk,
+                    'pcs': pcs,
+                    'type': design_type,
+                    'remark': new_remark or None,
+                    'party_job_no': None,
+                    'fm_name': None,
+                    'grade': None,
+                    'coating': None,
+                }
+                st.session_state.upd_designs.append(new_design)
+                st.success("New design added. Review the table above and click 'Save Changes' when ready.")
+                st.rerun()
+
+    # --- Step 6: Save Changes ---
+    st.markdown("---")
+    if st.button("💾 Save Changes", key="upd_save_btn", type="primary"):
+        if not st.session_state.upd_designs:
+            st.error("Cannot save with no designs. Please add at least one design.")
+            return
+
+        # Guard: prevent double-click from triggering a second delete+re-insert
+        current_time = time.time()
+        if current_time - st.session_state.upd_save_lock < 30:
+            st.warning("Save already in progress. Please wait...", icon="⏳")
+            st.stop()
+        st.session_state.upd_save_lock = current_time
+
+        # Validate designs before touching the sheets
+        try:
+            validated_designs = []
+            for d in st.session_state.upd_designs:
+                validated_designs.append(DesignDetail(
+                    width=float(d.get('width', 0)),
+                    length=float(d.get('length', 0)),
+                    weight=float(d.get('weight', 0)) if d.get('weight') else None,
+                    mm_stack=float(d.get('mm_stack', 0)) if d.get('mm_stack') else None,
+                    sets=int(d.get('sets', 1)),
+                    hole=str(d.get('hole', 'Plain')),
+                    thk=float(d.get('thk', 0)),
+                    pcs=int(d.get('pcs', 0)),
+                    type=str(d.get('type', 'CRNO')),
+                    remark=d.get('remark') or None,
+                    party_job_no=d.get('party_job_no') or None,
+                    fm_name=d.get('fm_name') or None,
+                    grade=d.get('grade') or None,
+                    coating=d.get('coating') or None,
+                ))
+        except (ValidationError, ValueError) as e:
+            st.session_state.upd_save_lock = 0
+            st.error(f"Design validation failed: {e}")
+            return
+
+        try:
+            # Set the recovery flag BEFORE the API call.
+            # If Streamlit interrupts the script mid-call, the flag remains set.
+            # On the next render, the recovery block at the top of this function
+            # detects it, cleans up state, and shows the success toast.
+            st.session_state.upd_save_completed = True
+
+            with st.spinner("Saving changes to Sales Order..."):
+                success = service.update_sales_order_designs(
+                    job_card_number=selected_jc_key,
+                    updated_designs=validated_designs,
+                    jc_data=st.session_state.upd_jc_data
+                )
+
+            if success:
+                # Pop the flag (recovery block won't fire since we handle it here)
+                st.session_state.pop('upd_save_completed', None)
+                st.session_state.upd_save_lock = 0
+                # Clear both the SO dropdown cache and the WR job card cache.
+                # The WR page's get_cached_job_cards uses @st.cache_data with no TTL,
+                # so without this call it would serve stale designs_json (missing the
+                # updated design data) until the user manually refreshed.
+                load_dropdowns.clear()
+                st.cache_data.clear()
+                st.session_state.upd_loaded_jc = None
+                st.session_state.upd_designs = []
+                st.session_state.upd_jc_data = None
+                st.success(f"✅ Sales Order {selected_jc_key} updated successfully! Go to Weight Receipt to weigh new/updated designs.")
+                time.sleep(2)
+                st.rerun()
+            else:
+                st.session_state.pop('upd_save_completed', None)
+                st.session_state.upd_save_lock = 0
+                st.error("Failed to save changes. Please check the logs and try again.")
+        except Exception:
+            st.session_state.pop('upd_save_completed', None)
+            st.session_state.upd_save_lock = 0
+            st.error("A temporary error occurred (possibly rate limit). Please try saving again.")
 
 
 @st.cache_resource(ttl=600)
@@ -463,15 +795,36 @@ def load_dropdowns(_service: SalesOrderService):
 
 def render_sales_order_form() -> None:
     """Renders the main Sales Order entry form."""
-    # if st.session_state.get('clear_cache_for_data_entry'):
-    #     st.session_state['clear_cache_for_data_entry'] = False
-    #     try:
-    #         load_dropdowns.clear()
-    #         st.toast("Sales Order cache cleared!")
-    #     except NameError:
-    #         pass
-
     services = get_services()
+
+    # --- Recovery: handle interrupted save operations ---
+    # Both cases: clear form state FIRST (instant), THEN call PA (slow HTTP call).
+    # This order is critical because Streamlit can interrupt the script at any time
+    # when more clicks arrive. The form must be clean before we attempt the slow PA call.
+    # Even if the PA call is interrupted, the HTTP request is already dispatched and
+    # will complete server-side — same pattern as the save itself.
+    save_data = st.session_state.pop('so_save_completed', None) or st.session_state.pop('so_save_in_flight', None)
+    if save_data:
+        job_card = save_data.get('job_card_number', 'unknown')
+        logger.info(f"[SO-RECOVERY] Recovering interrupted save for {job_card}. Clearing form first, then calling PA.")
+        load_dropdowns.clear()
+        _clear_so_form_state()
+        # Reset the lock so queued clicks don't hit st.stop() and freeze the screen
+        st.session_state.so_save_lock = 0
+        try:
+            pa_request = SalesOrderRequest(**save_data)
+            services.sales_order.invoke_power_automate_flow(pa_request)
+            logger.info(f"[SO-RECOVERY] PA call completed for {job_card}")
+        except Exception as e:
+            logger.error(f"[SO-RECOVERY] PA call failed for {job_card}: {e}")
+        st.session_state.so_save_success_msg = f"Sales Order {job_card} saved successfully!"
+        st.rerun()
+
+    # Show success message from a recovered save (survives queued reruns)
+    success_msg = st.session_state.pop('so_save_success_msg', None)
+    if success_msg:
+        st.success(success_msg)
+
     initialize_session_state()
 
     dropdown_data = load_dropdowns(services.sales_order)
@@ -519,3 +872,8 @@ def render_sales_order_form() -> None:
                 handle_final_submission(services.sales_order)
     elif order_type == "Full Coil Sale":
         render_full_coil_sale_form(services.sales_order, dropdown_data)
+
+    # --- Update Sales Order Section ---
+    st.markdown("---")
+    with st.expander("📝 Update Sales Order"):
+        render_update_sales_order(services.sales_order, dropdown_data)

@@ -23,7 +23,16 @@ def render_raw_material_inward_issue_form() -> None:
     if 'rm_inward_entries' not in st.session_state:
         st.session_state.rm_inward_entries = []
 
-
+    # --- Recovery: interrupted save ---
+    # If the save HTTP call completed server-side but Streamlit interrupted the script
+    # before post-save cleanup (clear form, rerun), recover here on the next render.
+    if st.session_state.pop('rm_inward_save_completed', False):
+        st.session_state.rm_inward_entries = []
+        st.session_state.pop('coil_number_input', None)
+        st.session_state.rm_inward_submit_lock = 0
+        load_dropdowns.clear()
+        st.toast("Entries submitted successfully!")
+        st.rerun()
 
     if st.session_state.get("form_submitted_successfully", False):
         # Clear single entry form state
@@ -183,19 +192,34 @@ def render_raw_material_inward_issue_form() -> None:
                 not st.session_state.get("coil_entry_validation_successful", False)
             )
             if st.button("Submit All Entries", disabled=process_disabled):
+                current_time = time.time()
+                if current_time - st.session_state.get('rm_inward_submit_lock', 0) < 30:
+                    st.warning("Save already in progress. Please wait...")
+                    st.stop()
+                st.session_state.rm_inward_submit_lock = current_time
+
                 with st.spinner("Submitting entries..."):
                     try:
                         requests = [RMInwardIssueRequest(**entry) for entry in st.session_state.rm_inward_entries]
+                        # Mark in-flight BEFORE the API call so recovery can detect interrupted saves
+                        st.session_state.rm_inward_save_completed = True
                         success = data_service.create_rm_inward_issues_bulk(requests)
                         if success:
                             st.success(f"Successfully submitted {len(requests)} entries!")
                             st.session_state.rm_inward_entries = []
+                            st.session_state.pop('coil_number_input', None)
+                            st.session_state.pop('rm_inward_save_completed', None)
                             load_dropdowns.clear()
+                            st.session_state.rm_inward_submit_lock = 0
                             time.sleep(2)
                             st.rerun()
                         else:
+                            st.session_state.pop('rm_inward_save_completed', None)
+                            st.session_state.rm_inward_submit_lock = 0
                             st.error("Failed to submit entries. Please check application logs.")
                     except Exception as e:
+                        st.session_state.pop('rm_inward_save_completed', None)
+                        st.session_state.rm_inward_submit_lock = 0
                         st.error(f"An error occurred during submission: {e}")
 
     with st.expander("Bulk Upload from Excel", expanded=(st.session_state.get('bulk_upload_file') is not None)):
@@ -320,6 +344,12 @@ def render_raw_material_inward_issue_form() -> None:
 
             process_disabled = st.session_state.get("validate_against_plan", False) and not st.session_state.get("validation_successful", False)
             if st.button("Process Bulk Upload", key="process_bulk_upload", disabled=process_disabled):
+                current_time = time.time()
+                if current_time - st.session_state.get('rm_inward_bulk_lock', 0) < 30:
+                    st.warning("Save already in progress. Please wait...")
+                    st.stop()
+                st.session_state.rm_inward_bulk_lock = current_time
+
                 if group_by_col:
                     if "grouped_df" in st.session_state and st.session_state.grouped_df is not None:
                         processing_df = st.session_state.grouped_df
@@ -344,6 +374,7 @@ def render_raw_material_inward_issue_form() -> None:
                         if success:
                             st.success(f"Successfully submitted {len(valid_requests)} records in a single batch!")
                             load_dropdowns.clear()
+                            st.session_state.rm_inward_bulk_lock = 0
                             keys_to_clear = ['uploaded_df', 'grouped_df', 'bulk_upload_file', 'column_mapping', 'validation_results', 'validation_successful']
                             for key in st.session_state.keys():
                                 if key.startswith('mapping_'):
@@ -353,9 +384,12 @@ def render_raw_material_inward_issue_form() -> None:
                                     del st.session_state[key]
                             st.rerun()
                         else:
+                            st.session_state.rm_inward_bulk_lock = 0
                             st.error("Failed to submit the bulk data. The entire batch was rejected by the API.")
                             for req in valid_requests:
                                 failed_records.append({"Row": "N/A", "Coil Number": str(req.coil_number), "Error": "Failed during bulk submission."})
+                else:
+                    st.session_state.rm_inward_bulk_lock = 0
 
                 if failed_records:
                     st.warning(f"Found {len(failed_records)} records with validation errors that were not submitted.")

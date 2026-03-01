@@ -17,6 +17,7 @@ class DesignDetail(BaseModel):
     hole: str
     pcs: int
     coating: Optional[str] = None
+    remark: Optional[str] = None
 
 class AssignedCoil(BaseModel):
     """Model for a single coil assigned to a Sales Order."""
