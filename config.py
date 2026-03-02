@@ -30,6 +30,9 @@ class SlittingPlanSettings(BaseModel):
     validation_weight_tolerance: float = Field(default=0.01)
     slitters: list[str] = Field(default_factory=lambda: ["AEL Pune", "TAIIN"])
 
+class WeightReceiptSettings(BaseModel):
+    manual_entry_authorized_emails: list[str] = Field(default_factory=list)
+
 class Settings(BaseModel):
     app: AppSettings
     api: APISettings
@@ -37,6 +40,7 @@ class Settings(BaseModel):
     streamlit: StreamlitSettings
     constants: ConstantsSettings
     slitting_plan: SlittingPlanSettings
+    weight_receipt: WeightReceiptSettings
 
 # Load settings from st.secrets
 def load_settings() -> Settings:
@@ -54,6 +58,7 @@ def load_settings() -> Settings:
         streamlit=StreamlitSettings(**st.secrets.get("streamlit", {})),
         constants=ConstantsSettings(**st.secrets.get("constants", {})),
         slitting_plan=SlittingPlanSettings(**st.secrets.get("slitting_plan", {})),
+        weight_receipt=WeightReceiptSettings(**st.secrets.get("weight_receipt", {})),
     )
 
 settings = load_settings()

@@ -6,6 +6,10 @@ import time
 from pages.shared.utils import get_services
 from src.services import SalesOrderService
 from src.data_entry.models.weight_receipt_models import WeightReceiptRequest, WeighedDesignDetail
+from src.shared.utils.logger_config import setup_logger
+from config import settings
+
+logger = setup_logger(__name__)
 
 
 @st.cache_resource(ttl=600)
@@ -37,8 +41,15 @@ def initialize_wr_session_state():
         st.session_state.wr_save_locks = {}
     if 'wr_design_sets' not in st.session_state:
         st.session_state.wr_design_sets = {}
+    if 'wr_is_manual_entry' not in st.session_state:
+        st.session_state.wr_is_manual_entry = False
 
-    
+def _is_manual_entry_authorized():
+    """Check if the current user is authorized for manual weight entry."""
+    user_email = st.session_state.get('user_info', {}).get('username', '')
+    authorized = [e.lower() for e in settings.weight_receipt.manual_entry_authorized_emails]
+    return user_email.lower() in authorized
+
 
 def _render_designs_grid(designs, drafts, is_itemized_mode=False, total_sets_in_jc=1, editable=True):
     """
@@ -253,9 +264,10 @@ def render_weight_receipt_form():
                 # When JC changes, reset the session state for weights, remarks, deductions, and selection
                 st.session_state.wr_weights = {}
                 st.session_state.wr_remarks = {}
-                st.session_state.wr_design_sets = {} 
+                st.session_state.wr_design_sets = {}
                 st.session_state.wr_design_deductions = {}
                 st.session_state.wr_selected_designs = set()
+                st.session_state.wr_is_manual_entry = False
 
                 # Crucial: Clear specific widget keys from session state to prevent StreamlitValueAboveMaxError
                 # and stale values in inputs. We clear up to a reasonable number of designs.
@@ -494,7 +506,8 @@ def render_weight_receipt_form():
                             response_data = services.weight_receipt.get_current_weight_from_scale()
                             if response_data.get("success") and response_data.get("status") == "stable":
                                 total_scale_weight = response_data.get("weight", 0.0)
-                                
+                                st.session_state.wr_is_manual_entry = False
+
                                 # Helper to get effective weight
                                 def get_effective_weight(idx):
                                     if is_itemized_mode:
@@ -502,7 +515,7 @@ def render_weight_receipt_form():
                                         # Use session state, fallback to draft, fallback to 1
                                         draft_sets = drafts.get(idx, {}).get('sets', 1)
                                         current_sets = st.session_state.wr_design_sets.get(idx, int(draft_sets) if draft_sets is not None else 1)
-                                        
+
                                         if total_sets_in_jc > 0:
                                             return (orig_weight / total_sets_in_jc) * current_sets
                                         return 0.0
@@ -511,14 +524,14 @@ def render_weight_receipt_form():
 
                                 # Calculate total expected weight of selected designs
                                 selected_total_expected = sum(get_effective_weight(i) for i in selected_indices)
-                                
+
                                 # Apply proportionally to selected designs
                                 num_selected = len(selected_indices)
-                                
+
                                 for idx in selected_indices:
                                     design = designs[idx]
                                     expected_wt = get_effective_weight(idx)
-                                    
+
                                     # Calculate allocated weight portion
                                     if selected_total_expected > 0:
                                         # Proportional distribution: (Item Expected / Total Expected) * Total Scale Weight
@@ -532,21 +545,86 @@ def render_weight_receipt_form():
                                         current_base_weight = st.session_state.wr_weights.get(idx)
                                         if current_base_weight is None:
                                             current_base_weight = drafts.get(idx, {}).get('weight', 0.0)
-                                        
+
                                         st.session_state.wr_weights[idx] = current_base_weight + allocated_portion
                                     else: # Get Weight
                                         st.session_state.wr_weights[idx] = allocated_portion
-                                
+
                                 if add_weight_clicked:
                                     st.toast(f"Added {total_scale_weight:.2f} kg to {num_selected} designs (Proportional).", icon="⚖️")
                                 else:
                                     st.toast(f"Fetched {total_scale_weight:.2f} kg for {num_selected} designs (Proportional).", icon="⚖️")
-                                
+
                                 st.rerun()
                             else:
                                 st.warning(f"Unstable: {response_data.get('status')}", icon="⚠️")
                     else:
                         st.warning("Please select at least one design to weigh.")
+
+                # --- Manual Weight Entry (Loose Strips) ---
+                if _is_manual_entry_authorized():
+                    with st.expander("Manual Weight Entry", expanded=False):
+                        manual_wt_loose = st.number_input(
+                            "Weight (kg)", min_value=0.0, step=0.1, key="manual_weight_loose", format="%.2f"
+                        )
+                        m_col1, m_col2 = st.columns(2)
+                        with m_col1:
+                            manual_set_clicked = st.button("Set Weight (Manual)", key="manual_set_loose")
+                        with m_col2:
+                            manual_add_clicked = st.button("Add Weight (Manual)", key="manual_add_loose")
+
+                        if manual_set_clicked or manual_add_clicked:
+                            selected_indices_m = st.session_state.get('wr_selected_designs', set())
+                            if len(selected_indices_m) == 0:
+                                st.warning("Please select at least one design to weigh.")
+                            elif manual_wt_loose <= 0:
+                                st.warning("Weight must be greater than 0.")
+                            else:
+                                st.session_state.wr_is_manual_entry = True
+                                total_manual_weight = manual_wt_loose
+                                action = "SET" if manual_set_clicked else "ADD"
+
+                                # Reuse same proportional distribution logic
+                                def get_effective_weight_manual(idx):
+                                    if is_itemized_mode:
+                                        orig_weight = designs[idx].get('weight', 0.0)
+                                        draft_sets = drafts.get(idx, {}).get('sets', 1)
+                                        current_sets = st.session_state.wr_design_sets.get(idx, int(draft_sets) if draft_sets is not None else 1)
+                                        if total_sets_in_jc > 0:
+                                            return (orig_weight / total_sets_in_jc) * current_sets
+                                        return 0.0
+                                    else:
+                                        return designs[idx].get('weight', 0.0)
+
+                                selected_total_expected_m = sum(get_effective_weight_manual(i) for i in selected_indices_m)
+                                num_selected_m = len(selected_indices_m)
+
+                                for idx in selected_indices_m:
+                                    expected_wt = get_effective_weight_manual(idx)
+                                    if selected_total_expected_m > 0:
+                                        allocated_portion = (expected_wt / selected_total_expected_m) * total_manual_weight
+                                    else:
+                                        allocated_portion = total_manual_weight / num_selected_m
+
+                                    if manual_add_clicked:
+                                        current_base_weight = st.session_state.wr_weights.get(idx)
+                                        if current_base_weight is None:
+                                            current_base_weight = drafts.get(idx, {}).get('weight', 0.0)
+                                        st.session_state.wr_weights[idx] = current_base_weight + allocated_portion
+                                    else:
+                                        st.session_state.wr_weights[idx] = allocated_portion
+
+                                user_email = st.session_state.get('user_info', {}).get('username', 'UNKNOWN')
+                                logger.warning(
+                                    "MANUAL WEIGHT ENTRY | user=%s | JC=%s | weight=%.2f kg | designs=%s | action=%s | mode=Loose Strips",
+                                    user_email, selected_jc_str, total_manual_weight, list(selected_indices_m), action
+                                )
+
+                                if manual_add_clicked:
+                                    st.toast(f"Manual: Added {total_manual_weight:.2f} kg to {num_selected_m} designs.", icon="⚖️")
+                                else:
+                                    st.toast(f"Manual: Set {total_manual_weight:.2f} kg for {num_selected_m} designs.", icon="⚖️")
+                                st.rerun()
 
                 if save_draft_clicked:
                     selected_indices = st.session_state.get('wr_selected_designs', set())
@@ -608,6 +686,8 @@ def render_weight_receipt_form():
                             weighed_designs.append(WeighedDesignDetail(**weighed_design_data))
 
                     if not weighed_designs:
+                        if selected_jc_str in st.session_state.wr_save_locks:
+                            del st.session_state.wr_save_locks[selected_jc_str]
                         st.error("Please weigh at least one item before saving.", icon="⚠️")
                         st.stop()
 
@@ -641,7 +721,7 @@ def render_weight_receipt_form():
                         material=selected_jc.get('material', 'N/A'),
                         sets=st.session_state.get('wr_sets_for_receipt', 0),
                         designs=weighed_designs,
-                        weight_entry_type="Loose Strips",
+                        weight_entry_type="Loose Strips (Manual)" if st.session_state.get('wr_is_manual_entry') else "Loose Strips",
                         total_weight=actual_total_weight,
                         deduction=deduction,
                         order_type=order_type
@@ -664,7 +744,8 @@ def render_weight_receipt_form():
                             st.session_state.wr_total_weight = 0.0
                             st.session_state.wr_draft_data = {}
                             st.session_state.last_selected_index = None
-                            
+                            st.session_state.wr_is_manual_entry = False
+
                             # Clear lock on success
                             if selected_jc_str in st.session_state.wr_save_locks:
                                 del st.session_state.wr_save_locks[selected_jc_str]
@@ -676,7 +757,7 @@ def render_weight_receipt_form():
                             # Clear lock on failure
                             if selected_jc_str in st.session_state.wr_save_locks:
                                 del st.session_state.wr_save_locks[selected_jc_str]
-            
+
             elif weight_entry_type == "Building Core":
                 _render_designs_grid(designs, drafts, is_itemized_mode=False, editable=False)
                 st.markdown("<h6>Enter Total Actual Weight & Remark:</h6>", unsafe_allow_html=True)
@@ -708,17 +789,51 @@ def render_weight_receipt_form():
                         response_data = services.weight_receipt.get_current_weight_from_scale()
                         if response_data.get("success") and response_data.get("status") == "stable":
                             weight = response_data.get("weight", 0.0)
-                            
+                            st.session_state.wr_is_manual_entry = False
+
                             if add_weight_clicked_core:
                                 st.session_state.wr_total_weight += weight
                                 st.toast(f"Added {weight:.2f} kg. New total: {st.session_state.wr_total_weight:.2f} kg. Click 'Save Draft' to persist.", icon="⚖️")
                             else: # Get Weight
                                 st.session_state.wr_total_weight = weight
                                 st.toast(f"Weight received: {weight:.2f} kg. Click 'Save Draft' to persist.", icon="⚖️")
-                            
+
                             st.rerun()
                         else:
                             st.warning(f"Weight is unstable: {response_data.get('status')}", icon="⚠️")
+
+                # --- Manual Weight Entry (Building Core) ---
+                if _is_manual_entry_authorized():
+                    with st.expander("Manual Weight Entry", expanded=False):
+                        manual_wt_core = st.number_input(
+                            "Weight (kg)", min_value=0.0, step=0.1, key="manual_weight_core", format="%.2f"
+                        )
+                        mc_col1, mc_col2 = st.columns(2)
+                        with mc_col1:
+                            manual_set_core = st.button("Set Weight (Manual)", key="manual_set_core")
+                        with mc_col2:
+                            manual_add_core = st.button("Add Weight (Manual)", key="manual_add_core")
+
+                        if manual_set_core or manual_add_core:
+                            if manual_wt_core <= 0:
+                                st.warning("Weight must be greater than 0.")
+                            else:
+                                st.session_state.wr_is_manual_entry = True
+                                action = "SET" if manual_set_core else "ADD"
+
+                                if manual_add_core:
+                                    st.session_state.wr_total_weight += manual_wt_core
+                                    st.toast(f"Manual: Added {manual_wt_core:.2f} kg. New total: {st.session_state.wr_total_weight:.2f} kg.", icon="⚖️")
+                                else:
+                                    st.session_state.wr_total_weight = manual_wt_core
+                                    st.toast(f"Manual: Weight set to {manual_wt_core:.2f} kg.", icon="⚖️")
+
+                                user_email = st.session_state.get('user_info', {}).get('username', 'UNKNOWN')
+                                logger.warning(
+                                    "MANUAL WEIGHT ENTRY | user=%s | JC=%s | weight=%.2f kg | action=%s | mode=Building Core",
+                                    user_email, selected_jc_str, manual_wt_core, action
+                                )
+                                st.rerun()
 
                 if save_draft_clicked_core:
                     with st.spinner("Saving draft..."):
@@ -745,6 +860,8 @@ def render_weight_receipt_form():
                     actual_total_weight = st.session_state.get('wr_total_weight', 0.0)
 
                     if actual_total_weight <= 0:
+                        if selected_jc_str in st.session_state.wr_save_locks:
+                            del st.session_state.wr_save_locks[selected_jc_str]
                         st.error("Please fetch a valid total weight before saving.")
                         st.stop()
 
@@ -781,7 +898,7 @@ def render_weight_receipt_form():
                         material=selected_jc.get('material', 'N/A'),
                         sets=st.session_state.get('wr_sets_for_receipt', 0),
                         designs=weighed_designs,
-                        weight_entry_type="Building Core",
+                        weight_entry_type="Building Core (Manual)" if st.session_state.get('wr_is_manual_entry') else "Building Core",
                         total_weight=actual_total_weight,
                         deduction=deduction,
                         order_type=order_type
@@ -804,7 +921,8 @@ def render_weight_receipt_form():
                             st.session_state.wr_total_weight = 0.0
                             st.session_state.wr_draft_data = {}
                             st.session_state.last_selected_index = None
-                            
+                            st.session_state.wr_is_manual_entry = False
+
                             # Clear lock on success
                             if selected_jc_str in st.session_state.wr_save_locks:
                                 del st.session_state.wr_save_locks[selected_jc_str]
