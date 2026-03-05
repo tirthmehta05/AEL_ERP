@@ -14,6 +14,65 @@ from theme.components import render_main_header, end_card
 def load_dropdowns(_service: RMInwardService):
     return _service.get_dropdown_data()
 
+@st.dialog("Confirm Coil Entries", width="large")
+def _show_single_entry_confirmation_dialog(entries: list, data_service: RMInwardService):
+    """Shows a modal to confirm single coil entries before saving."""
+    st.markdown("Please review the coil entries below before submitting.")
+    st.markdown("---")
+    
+    df = pd.DataFrame(entries)
+    # Reorder/rename columns for better display
+    display_cols = ['coil_number', 'rm_type', 'width', 'thk', 'coil_weight', 'coil_supplier', 'coil_location']
+    display_df = df[[c for c in display_cols if c in df.columns]].copy()
+    display_df.columns = ['Coil Number', 'RM Type', 'Width (mm)', 'Thk (mm)', 'Weight (kg)', 'Supplier', 'Location']
+    
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    
+    st.markdown("---")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("✅ Confirm Submit", type="primary", use_container_width=True):
+            st.session_state.rm_inward_submit_confirmed = True
+            st.rerun()
+    with col2:
+        if st.button("❌ Cancel", use_container_width=True):
+            st.session_state.rm_inward_submit_confirmed = False
+            st.session_state.rm_inward_submit_lock = 0
+            st.rerun()
+
+@st.dialog("Confirm Bulk Upload", width="large")
+def _show_bulk_upload_confirmation_dialog(valid_requests: list):
+    """Shows a modal to confirm bulk upload entries before saving."""
+    st.markdown(f"**{len(valid_requests)}** valid records are ready to be submitted.")
+    st.markdown("Please review the preview below before confirming.")
+    st.markdown("---")
+    
+    # Create a DataFrame from the Pydantic models for preview
+    preview_data = [req.model_dump() for req in valid_requests]
+    df = pd.DataFrame(preview_data)
+    
+    # Reorder/rename columns for better display
+    display_cols = ['coil_number', 'rm_type', 'width', 'thk', 'coil_weight', 'coil_supplier']
+    display_df = df[[c for c in display_cols if c in df.columns]].copy()
+    display_df.columns = ['Coil Number', 'RM Type', 'Width (mm)', 'Thk (mm)', 'Weight (kg)', 'Supplier']
+    
+    # Show at most 10 records for preview
+    st.dataframe(display_df.head(10), use_container_width=True, hide_index=True)
+    if len(valid_requests) > 10:
+        st.info(f"... and {len(valid_requests) - 10} more records.")
+    
+    st.markdown("---")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("✅ Confirm Upload", type="primary", use_container_width=True):
+            st.session_state.rm_inward_bulk_submit_confirmed = True
+            st.rerun()
+    with col2:
+        if st.button("❌ Cancel", use_container_width=True):
+            st.session_state.rm_inward_bulk_submit_confirmed = False
+            st.session_state.rm_inward_bulk_lock = 0
+            st.rerun()
+
 
 def render_raw_material_inward_issue_form() -> None:
     """Renders the Raw Material Inward Issue page with single and bulk entry options."""
@@ -191,17 +250,12 @@ def render_raw_material_inward_issue_form() -> None:
                 st.session_state.get("coil_entry_validate_against_plan", False) and 
                 not st.session_state.get("coil_entry_validation_successful", False)
             )
-            if st.button("Submit All Entries", disabled=process_disabled):
-                current_time = time.time()
-                if current_time - st.session_state.get('rm_inward_submit_lock', 0) < 30:
-                    st.warning("Save already in progress. Please wait...")
-                    st.stop()
-                st.session_state.rm_inward_submit_lock = current_time
-
+            
+            # If the user has explicitly confirmed in the dialog
+            if st.session_state.pop("rm_inward_submit_confirmed", False):
                 with st.spinner("Submitting entries..."):
                     try:
                         requests = [RMInwardIssueRequest(**entry) for entry in st.session_state.rm_inward_entries]
-                        # Mark in-flight BEFORE the API call so recovery can detect interrupted saves
                         st.session_state.rm_inward_save_completed = True
                         success = data_service.create_rm_inward_issues_bulk(requests)
                         if success:
@@ -221,6 +275,16 @@ def render_raw_material_inward_issue_form() -> None:
                         st.session_state.pop('rm_inward_save_completed', None)
                         st.session_state.rm_inward_submit_lock = 0
                         st.error(f"An error occurred during submission: {e}")
+
+            elif st.button("Submit All Entries", disabled=process_disabled):
+                current_time = time.time()
+                if current_time - st.session_state.get('rm_inward_submit_lock', 0) < 30:
+                    st.warning("Save already in progress. Please wait...")
+                    st.stop()
+                st.session_state.rm_inward_submit_lock = current_time
+                
+                # Open the confirmation dialog
+                _show_single_entry_confirmation_dialog(st.session_state.rm_inward_entries, data_service)
 
     with st.expander("Bulk Upload from Excel", expanded=(st.session_state.get('bulk_upload_file') is not None)):
         st.info("This feature allows you to upload multiple coil entries at once using an Excel file.")
@@ -343,7 +407,36 @@ def render_raw_material_inward_issue_form() -> None:
                         st.error(f"Validation failed: {results.get('message', 'Please check the discrepancies.')}")
 
             process_disabled = st.session_state.get("validate_against_plan", False) and not st.session_state.get("validation_successful", False)
-            if st.button("Process Bulk Upload", key="process_bulk_upload", disabled=process_disabled):
+            
+            # If the user has explicitly confirmed in the dialog
+            if st.session_state.pop("rm_inward_bulk_submit_confirmed", False):
+                valid_requests = st.session_state.get("pending_valid_requests", [])
+                failed_records = st.session_state.get("pending_failed_records", [])
+                
+                if valid_requests:
+                    with st.spinner("Submitting to Google Sheets..."):
+                        success = data_service.create_rm_inward_issues_bulk(valid_requests)
+                        if success:
+                            st.success(f"Successfully submitted {len(valid_requests)} records in a single batch!")
+                            load_dropdowns.clear()
+                            st.session_state.rm_inward_bulk_lock = 0
+                            keys_to_clear = ['uploaded_df', 'grouped_df', 'bulk_upload_file', 'column_mapping', 'validation_results', 'validation_successful', 'pending_valid_requests', 'pending_failed_records']
+                            for key in st.session_state.keys():
+                                if key.startswith('mapping_'):
+                                    keys_to_clear.append(key)
+                            for key in keys_to_clear:
+                                if key in st.session_state:
+                                    del st.session_state[key]
+                            st.rerun()
+                        else:
+                            st.session_state.rm_inward_bulk_lock = 0
+                            st.error("Failed to submit the bulk data. The entire batch was rejected by the API.")
+                            for req in valid_requests:
+                                failed_records.append({"Row": "N/A", "Coil Number": str(req.coil_number), "Error": "Failed during bulk submission."})
+                else:
+                    st.session_state.rm_inward_bulk_lock = 0
+            
+            elif st.button("Process Bulk Upload", key="process_bulk_upload", disabled=process_disabled):
                 current_time = time.time()
                 if current_time - st.session_state.get('rm_inward_bulk_lock', 0) < 30:
                     st.warning("Save already in progress. Please wait...")
@@ -367,32 +460,16 @@ def render_raw_material_inward_issue_form() -> None:
                 existing_coils = set(c.lower() for c in dropdowns.coil_numbers)
                 valid_requests, failed_records = data_service.process_bulk_upload_df(processing_df, mapping, options, existing_coils)
                 
+                # Store processed records in session state for the dialog to use
+                st.session_state.pending_valid_requests = valid_requests
+                st.session_state.pending_failed_records = failed_records
+                
                 if valid_requests:
-                    st.write(f"Validation complete. Submitting {len(valid_requests)} valid records...")
-                    with st.spinner("Submitting to Google Sheets..."):
-                        success = data_service.create_rm_inward_issues_bulk(valid_requests)
-                        if success:
-                            st.success(f"Successfully submitted {len(valid_requests)} records in a single batch!")
-                            load_dropdowns.clear()
-                            st.session_state.rm_inward_bulk_lock = 0
-                            keys_to_clear = ['uploaded_df', 'grouped_df', 'bulk_upload_file', 'column_mapping', 'validation_results', 'validation_successful']
-                            for key in st.session_state.keys():
-                                if key.startswith('mapping_'):
-                                    keys_to_clear.append(key)
-                            for key in keys_to_clear:
-                                if key in st.session_state:
-                                    del st.session_state[key]
-                            st.rerun()
-                        else:
-                            st.session_state.rm_inward_bulk_lock = 0
-                            st.error("Failed to submit the bulk data. The entire batch was rejected by the API.")
-                            for req in valid_requests:
-                                failed_records.append({"Row": "N/A", "Coil Number": str(req.coil_number), "Error": "Failed during bulk submission."})
+                    _show_bulk_upload_confirmation_dialog(valid_requests)
                 else:
                     st.session_state.rm_inward_bulk_lock = 0
-
-                if failed_records:
-                    st.warning(f"Found {len(failed_records)} records with validation errors that were not submitted.")
-                    failed_df = pd.DataFrame(failed_records)
-                    failed_df['Row'] = failed_df['Row'].astype(str)
-                    st.dataframe(failed_df)
+                    if failed_records:
+                        st.warning(f"Found {len(failed_records)} records with validation errors. None were valid for submission.")
+                        failed_df = pd.DataFrame(failed_records)
+                        failed_df['Row'] = failed_df['Row'].astype(str)
+                        st.dataframe(failed_df)
