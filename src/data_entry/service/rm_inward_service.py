@@ -257,7 +257,8 @@ class RMInwardService:
     def get_next_coil_number(self) -> int:
         """
         Generates the next sequential coil number based on existing numeric numbers in the sheet.
-        Starts from 12246 if no higher numeric-only number is found.
+        Only considers coils with the location 'AEL PUNE'.
+        Starts from 12179 if no higher numeric-only number is found.
         """
         try:
             df = self._get_all_dropdown_data()
@@ -266,8 +267,16 @@ class RMInwardService:
 
             max_coil_num = 12179  # The base number to compare against
             
+            # Filter for AEL PUNE location (case-insensitive)
+            if 'Location' in df.columns:
+                # Fill missing softly, cast to str, strip, and convert to upper
+                mask = df['Location'].fillna('').astype(str).str.strip().str.upper() == 'AEL PUNE'
+                df_filtered = df[mask]
+            else:
+                df_filtered = df
+
             # Filter for strings that are purely numeric, then convert and find max
-            numeric_coils = pd.to_numeric(df['Coil Number'], errors='coerce').dropna()
+            numeric_coils = pd.to_numeric(df_filtered['Coil Number'], errors='coerce').dropna()
             
             if not numeric_coils.empty:
                 current_max = numeric_coils.max()
