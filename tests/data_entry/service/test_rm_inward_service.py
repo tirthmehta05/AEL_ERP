@@ -25,6 +25,43 @@ def test_generate_coil_number(inward_service):
     assert coil_number.isdigit() # Assert it is a number series now, not logic based string
 
 
+def test_get_next_coil_number_filters_by_location(inward_service):
+    """Test that get_next_coil_number only considers coils with location 'AEL PUNE'."""
+    # Mock the dataframe returned by _get_all_dropdown_data
+    mock_df = pd.DataFrame({
+        'Coil Number': ['12300', '12400', '12500'],
+        'Location': ['AEL PUNE', 'OTHER LOC', 'ael pune '] # Mixed case and spacing
+    })
+    inward_service._get_all_dropdown_data = MagicMock(return_value=mock_df)
+    
+    # The max among 'AEL PUNE' is 12500, so next should be 12501
+    next_coil = inward_service.get_next_coil_number()
+    assert next_coil == 12501
+
+def test_get_next_coil_number_no_location_column(inward_service):
+    """Test that get_next_coil_number works if the Location column is missing."""
+    mock_df = pd.DataFrame({
+        'Coil Number': ['12300', '12400', '12500']
+    })
+    inward_service._get_all_dropdown_data = MagicMock(return_value=mock_df)
+    
+    # No Location column, so it considers all. Max is 12500, next is 12501
+    next_coil = inward_service.get_next_coil_number()
+    assert next_coil == 12501
+
+def test_get_next_coil_number_default_base(inward_service):
+    """Test that it returns 12180 if no valid numeric 'AEL PUNE' coils exist."""
+    mock_df = pd.DataFrame({
+        'Coil Number': ['INVALID', 'ABCD'],
+        'Location': ['AEL PUNE', 'AEL PUNE']
+    })
+    inward_service._get_all_dropdown_data = MagicMock(return_value=mock_df)
+    
+    # Base is 12179, so next should be 12180
+    next_coil = inward_service.get_next_coil_number()
+    assert next_coil == 12180
+
+
 def test_validate_single_entry_success(inward_service):
     """Test a successful validation of a single entry."""
     inward_service.is_coil_number_unique = MagicMock(return_value=True)
