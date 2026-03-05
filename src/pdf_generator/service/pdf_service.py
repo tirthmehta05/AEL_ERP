@@ -729,7 +729,8 @@ class PDFService:
         total_weight = 0
         row_height = 8 # Use a consistent row height
 
-        is_core_building = receipt_data.get('WeightEntryType') == 'Building Core'
+        # Match "Building Core", "Building Core (Manual)", etc.
+        is_core_building = 'Building Core' in str(receipt_data.get('WeightEntryType', ''))
         core_receipt_remark = ""
         if is_core_building and designs:
             core_receipt_remark = designs[0].get('remark', '')
