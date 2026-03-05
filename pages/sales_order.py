@@ -14,6 +14,96 @@ from src.shared.utils.logger_config import setup_logger
 
 logger = setup_logger(__name__)
 
+@st.dialog("Confirm Sales Order Save", width="large")
+def _show_sales_order_confirmation_dialog(service: SalesOrderService, request_data: dict, total_design_weight: float, total_coil_weight: float, is_weight_mismatched: bool):
+    """Shows a modal to confirm sales order details before saving."""
+    st.markdown("Please review the Sales Order details before submitting.")
+    st.markdown("---")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown(f"**Job Card:** {request_data.get('job_card_number')}")
+        st.markdown(f"**Party:** {request_data.get('party_name')}")
+        st.markdown(f"**Order Date:** {request_data.get('order_date')}")
+        st.markdown(f"**Designs:** {len(request_data.get('designs', []))}")
+    with col2:
+        st.metric("Total Design Weight", f"{total_design_weight:.2f} kg")
+        if request_data.get('assigned_coils'):
+            st.metric("Assigned Coil Weight", f"{total_coil_weight:.2f} kg", 
+                      delta=f"{total_coil_weight - total_design_weight:.2f} kg" if not is_weight_mismatched else "Mismatch (>1%)",
+                      delta_color="normal" if not is_weight_mismatched else "inverse")
+            
+    if is_weight_mismatched:
+        st.error(f"Weight Mismatch: Total assigned coil weight ({total_coil_weight:.2f} kg) is not within 1% of the total design weight ({total_design_weight:.2f} kg).")
+        
+    st.markdown("---")
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("✅ Confirm Submit", type="primary", use_container_width=True, disabled=is_weight_mismatched):
+            st.session_state.so_submit_confirmed = True
+            st.rerun()
+    with c2:
+        if st.button("❌ Cancel", use_container_width=True):
+            st.session_state.so_submit_confirmed = False
+            st.session_state.so_save_lock = 0
+            st.rerun()
+
+@st.dialog("Confirm Full Coil Sale", width="large")
+def _show_fcs_confirmation_dialog(service: SalesOrderService, request_data: dict):
+    """Shows a modal to confirm full coil sale details before saving."""
+    st.markdown("Please review the Full Coil Sale details before submitting.")
+    st.markdown("---")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown(f"**Job Card:** {request_data.get('job_card')}")
+        st.markdown(f"**Party:** {request_data.get('party_name')}")
+        st.markdown(f"**Material Type:** {request_data.get('material_type')}")
+    with col2:
+        st.metric("Quantity", f"{request_data.get('qty'):.2f} kg")
+        st.markdown(f"**Width:** {request_data.get('width')} mm")
+        st.markdown(f"**Thickness:** {request_data.get('thk')} mm")
+        
+    st.markdown("---")
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("✅ Confirm Submit", type="primary", use_container_width=True):
+            st.session_state.fcs_submit_confirmed = True
+            st.rerun()
+    with c2:
+        if st.button("❌ Cancel", use_container_width=True):
+            st.session_state.fcs_submit_confirmed = False
+            st.session_state.fcs_save_lock = 0
+            st.rerun()
+
+@st.dialog("Confirm Sales Order Update", width="large")
+def _show_upd_confirmation_dialog(job_card: str, validated_designs: list):
+    """Shows a modal to confirm sales order updates before saving."""
+    st.markdown(f"**Update Job Card:** {job_card}")
+    st.markdown("Please review the updated designs below before submitting.")
+    st.markdown("---")
+    
+    # Show preview table
+    df = pd.DataFrame([d.model_dump() for d in validated_designs])
+    display_cols = ['width', 'length', 'weight', 'sets', 'hole', 'thk', 'remark']
+    display_df = df[[c for c in display_cols if c in df.columns]].copy()
+    display_df.columns = ['Width (mm)', 'Length (mm)', 'Weight (kg)', 'Sets', 'Hole', 'Thk (mm)', 'Remark']
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    
+    st.markdown("---")
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("✅ Confirm Update", type="primary", use_container_width=True):
+            st.session_state.upd_submit_confirmed = True
+            st.rerun()
+    with c2:
+        if st.button("❌ Cancel", use_container_width=True):
+            st.session_state.upd_submit_confirmed = False
+            st.session_state.upd_save_lock = 0
+            st.rerun()
+
+
+
 # --- FM Data ---
 FM_DATA = {
     "T-3": {"width": 55.2, "length": 127.0},
@@ -331,7 +421,51 @@ def handle_final_submission(service: SalesOrderService):
     run_id = f"{time.time():.3f}"
     logger.info(f"[SO-SAVE][{run_id}] handle_final_submission ENTERED")
 
-    # --- Lock: prevent duplicate API calls from rapid clicks ---
+    # If the user has explicitly confirmed in the dialog
+    if st.session_state.pop("so_submit_confirmed", False) and "pending_so_request" in st.session_state:
+        request_data = st.session_state.pop("pending_so_request")
+        try:
+            request = SalesOrderRequest(**request_data)
+
+            # Mark save as in-flight BEFORE the API call.
+            st.session_state.so_save_in_flight = request.model_dump(mode='json')
+            logger.info(f"[SO-SAVE][{run_id}] Calling save_sales_order for {request.job_card_number}...")
+
+            with st.spinner("Saving full order..."):
+                success = service.save_sales_order(request)
+            logger.info(f"[SO-SAVE][{run_id}] save_sales_order returned success={success}")
+
+            if success:
+                st.session_state.so_save_completed = st.session_state.pop('so_save_in_flight', None)
+                st.success(f"Sales Order {request.job_card_number} saved successfully!")
+                logger.info(f"[SO-SAVE][{run_id}] Calling invoke_power_automate_flow for {request.job_card_number}...")
+                service.invoke_power_automate_flow(request)
+                logger.info(f"[SO-SAVE][{run_id}] PA completed for {request.job_card_number}")
+
+                st.session_state.pop('so_save_completed', None)
+                logger.info(f"[SO-SAVE][{run_id}] Clearing state and rerunning...")
+                load_dropdowns.clear()
+                _clear_so_form_state()
+                time.sleep(2)
+                st.rerun()
+            else:
+                st.session_state.pop('so_save_in_flight', None)
+                st.session_state.so_save_lock = 0
+                logger.warning(f"[SO-SAVE][{run_id}] save_sales_order returned False")
+                st.error("Failed to save the sales order.")
+        except ValidationError as e:
+            st.session_state.pop('so_save_in_flight', None)
+            st.session_state.so_save_lock = 0
+            logger.error(f"[SO-SAVE][{run_id}] ValidationError: {e}")
+            st.error(f"Final validation failed: {e}")
+        except Exception as e:
+            st.session_state.pop('so_save_in_flight', None)
+            st.session_state.so_save_lock = 0
+            logger.error(f"[SO-SAVE][{run_id}] Exception: {e}")
+            st.error("A temporary error occurred (possibly rate limit). Please try saving again.")
+        return
+
+    # Initial click on 'Save Full Sales Order'
     current_time = time.time()
     lock_age = current_time - st.session_state.get('so_save_lock', 0)
     logger.info(f"[SO-SAVE][{run_id}] Lock check: age={lock_age:.1f}s, locked={'YES' if lock_age < 30 else 'NO'}")
@@ -343,82 +477,45 @@ def handle_final_submission(service: SalesOrderService):
     if not st.session_state.so_designs:
         logger.info(f"[SO-SAVE][{run_id}] Early return: no designs")
         st.session_state.so_save_lock = 0
-        # Only show error if this is a genuine user click, not a queued click after recovery
         if not st.session_state.get('so_save_success_msg'):
             st.error("Please add at least one design.")
         return
 
-    # If coils are assigned, validate the weight
-    if st.session_state.so_assigned_coils:
-        total_design_weight = sum(d.get('weight', 0) for d in st.session_state.so_designs)
-        total_coil_weight = sum(c.get('weight_used', 0) for c in st.session_state.so_assigned_coils)
+    # Calculate weights for dialog
+    total_design_weight = sum(d.get('weight', 0) for d in st.session_state.so_designs)
+    total_coil_weight = sum(c.get('weight_used', 0) for c in st.session_state.so_assigned_coils)
+    is_weight_mismatched = False
 
+    if st.session_state.so_assigned_coils:
         lower_bound = total_design_weight * 0.99
         upper_bound = total_design_weight * 1.01
-
         if not (lower_bound <= total_coil_weight <= upper_bound):
-            logger.info(f"[SO-SAVE][{run_id}] Early return: weight mismatch")
-            st.session_state.so_save_lock = 0
-            st.error(f"Weight Mismatch: Total assigned coil weight ({total_coil_weight:.2f} kg) is not within 1% of the total design weight ({total_design_weight:.2f} kg).")
-            return
+            is_weight_mismatched = True
 
     try:
-        request = SalesOrderRequest(
-            order_date=st.session_state.so_order_date,
-            po_no=st.session_state.so_po_no,
-            party_name=st.session_state.so_party_name,
-            delivery_date=st.session_state.so_delivery_date,
-            job_card_number=st.session_state.so_job_card_number,
-            hole_size=st.session_state.so_hole_size,
-            number_of_cores=st.session_state.so_num_cores,
-            rate_per_kg=st.session_state.so_rate_per_kg,
-            header_core_stack=st.session_state.so_header_core_stack,
-            coating=st.session_state.so_coating or None,
-            designs=[DesignDetail(**d) for d in st.session_state.so_designs],
-            assigned_coils=[AssignedCoil(**c) for c in st.session_state.so_assigned_coils],
-        )
-
-        # Mark save as in-flight BEFORE the API call.
-        # If Streamlit interrupts the script mid-call, this flag survives in session state
-        # and the recovery block at top of render_sales_order_form() will clear the form.
-        st.session_state.so_save_in_flight = request.model_dump(mode='json')
-        logger.info(f"[SO-SAVE][{run_id}] Calling save_sales_order for {request.job_card_number}...")
-
-        with st.spinner("Saving full order..."):
-            success = service.save_sales_order(request)
-        logger.info(f"[SO-SAVE][{run_id}] save_sales_order returned success={success}")
-
-        if success:
-            # Upgrade flag: save succeeded, PA still pending.
-            st.session_state.so_save_completed = st.session_state.pop('so_save_in_flight', None)
-
-            st.success(f"Sales Order {request.job_card_number} saved successfully!")
-            logger.info(f"[SO-SAVE][{run_id}] Calling invoke_power_automate_flow for {request.job_card_number}...")
-            service.invoke_power_automate_flow(request)
-            logger.info(f"[SO-SAVE][{run_id}] PA completed for {request.job_card_number}")
-
-            # All done — clear the completed flag and form state
-            st.session_state.pop('so_save_completed', None)
-            logger.info(f"[SO-SAVE][{run_id}] Clearing state and rerunning...")
-            load_dropdowns.clear()
-            _clear_so_form_state()
-            time.sleep(2)
-            st.rerun()
-        else:
-            st.session_state.pop('so_save_in_flight', None)
-            st.session_state.so_save_lock = 0
-            logger.warning(f"[SO-SAVE][{run_id}] save_sales_order returned False")
-            st.error("Failed to save the sales order.")
-    except ValidationError as e:
-        st.session_state.pop('so_save_in_flight', None)
-        st.session_state.so_save_lock = 0
-        logger.error(f"[SO-SAVE][{run_id}] ValidationError: {e}")
-        st.error(f"Final validation failed: {e}")
+        request_data = {
+            "order_date": st.session_state.so_order_date,
+            "po_no": st.session_state.so_po_no,
+            "party_name": st.session_state.so_party_name,
+            "delivery_date": st.session_state.so_delivery_date,
+            "job_card_number": st.session_state.so_job_card_number,
+            "hole_size": st.session_state.so_hole_size,
+            "number_of_cores": st.session_state.so_num_cores,
+            "rate_per_kg": st.session_state.so_rate_per_kg,
+            "header_core_stack": st.session_state.so_header_core_stack,
+            "coating": st.session_state.so_coating or None,
+            "designs": st.session_state.so_designs,
+            "assigned_coils": st.session_state.so_assigned_coils,
+        }
+        
+        # Store for dialog and open it
+        st.session_state.pending_so_request = request_data
+        _show_sales_order_confirmation_dialog(service, request_data, total_design_weight, total_coil_weight, is_weight_mismatched)
+        
     except Exception as e:
-        st.session_state.pop('so_save_in_flight', None)
         st.session_state.so_save_lock = 0
-        logger.error(f"[SO-SAVE][{run_id}] Exception: {e}")
-        st.error("A temporary error occurred (possibly rate limit). Please try saving again.")
+        logger.error(f"[SO-SAVE][{run_id}] Exception preparing dialog: {e}")
+        st.error(f"Error preparing save: {e}")
 
 def render_full_coil_sale_form(service: SalesOrderService, dropdown_data):
     """Renders the form for Full Coil Sale."""
@@ -476,33 +573,14 @@ def render_full_coil_sale_form(service: SalesOrderService, dropdown_data):
         st.text_input("Remark (Optional)", key="fcs_remark")
 
     st.markdown("---")
-    if st.button("Save Full Coil Sale"):
-        current_time = time.time()
-        if current_time - st.session_state.get('fcs_save_lock', 0) < 30:
-            st.warning("Save already in progress. Please wait...")
-            st.stop()
-        st.session_state.fcs_save_lock = current_time
-
+    
+    # If the user has explicitly confirmed in the dialog
+    if st.session_state.pop("fcs_submit_confirmed", False) and "pending_fcs_request" in st.session_state:
+        request_data = st.session_state.pop("pending_fcs_request")
         try:
             from src.data_entry.models.sales_order_models import FullCoilSaleRequest
-
-            job_card = st.session_state.fcs_job_card_generated if not st.session_state.fcs_manual_job_card else st.session_state.fcs_job_card
-
-            request = FullCoilSaleRequest(
-                job_card=job_card,
-                order_date=st.session_state.fcs_order_date,
-                po_no=st.session_state.fcs_po_no,
-                party_name=st.session_state.fcs_party_name,
-                width=float(st.session_state.fcs_width),
-                qty=st.session_state.fcs_qty,
-                material_type=st.session_state.fcs_material_type,
-                thk=float(st.session_state.fcs_thk),
-                rate=st.session_state.fcs_rate,
-                delivery_date=st.session_state.fcs_delivery_date,
-                remark=st.session_state.fcs_remark,
-                grade=st.session_state.fcs_grade,
-                coating=st.session_state.fcs_coating
-            )
+            request = FullCoilSaleRequest(**request_data)
+            
             with st.spinner("Saving Full Coil Sale order..."):
                 success = service.save_full_coil_sale(request)
             if success:
@@ -523,6 +601,40 @@ def render_full_coil_sale_form(service: SalesOrderService, dropdown_data):
         except Exception as e:
             st.session_state.fcs_save_lock = 0
             st.error(f"An error occurred: {e}")
+
+    # Initial click on Save
+    elif st.button("Save Full Coil Sale"):
+        current_time = time.time()
+        if current_time - st.session_state.get('fcs_save_lock', 0) < 30:
+            st.warning("Save already in progress. Please wait...")
+            st.stop()
+        st.session_state.fcs_save_lock = current_time
+
+        job_card = st.session_state.fcs_job_card_generated if not st.session_state.fcs_manual_job_card else st.session_state.fcs_job_card
+        
+        if not st.session_state.fcs_width or not st.session_state.fcs_thk:
+            st.session_state.fcs_save_lock = 0
+            st.error("Please provide both Width and Thickness.")
+            return
+
+        request_data = {
+            "job_card": job_card,
+            "order_date": st.session_state.fcs_order_date,
+            "po_no": st.session_state.fcs_po_no,
+            "party_name": st.session_state.fcs_party_name,
+            "width": float(st.session_state.fcs_width),
+            "qty": st.session_state.fcs_qty,
+            "material_type": st.session_state.fcs_material_type,
+            "thk": float(st.session_state.fcs_thk),
+            "rate": st.session_state.fcs_rate,
+            "delivery_date": st.session_state.fcs_delivery_date,
+            "remark": st.session_state.fcs_remark,
+            "grade": st.session_state.fcs_grade,
+            "coating": st.session_state.fcs_coating
+        }
+        
+        st.session_state.pending_fcs_request = request_data
+        _show_fcs_confirmation_dialog(service, request_data)
 
 
 def render_update_sales_order(service: SalesOrderService, dropdown_data):
@@ -712,7 +824,44 @@ def render_update_sales_order(service: SalesOrderService, dropdown_data):
 
     # --- Step 6: Save Changes ---
     st.markdown("---")
-    if st.button("💾 Save Changes", key="upd_save_btn", type="primary"):
+    
+    if st.session_state.pop("upd_submit_confirmed", False) and "pending_upd_request" in st.session_state:
+        request_data = st.session_state.pop("pending_upd_request")
+        validated_designs = request_data['validated_designs']
+        selected_jc_key = request_data['selected_jc_key']
+        
+        try:
+            # Set the recovery flag BEFORE the API call.
+            st.session_state.upd_save_completed = True
+
+            with st.spinner("Saving changes to Sales Order..."):
+                success = service.update_sales_order_designs(
+                    job_card_number=selected_jc_key,
+                    updated_designs=validated_designs,
+                    jc_data=st.session_state.upd_jc_data
+                )
+
+            if success:
+                st.session_state.pop('upd_save_completed', None)
+                st.session_state.upd_save_lock = 0
+                load_dropdowns.clear()
+                st.cache_data.clear()
+                st.session_state.upd_loaded_jc = None
+                st.session_state.upd_designs = []
+                st.session_state.upd_jc_data = None
+                st.success(f"✅ Sales Order {selected_jc_key} updated successfully! Go to Weight Receipt to weigh new/updated designs.")
+                time.sleep(2)
+                st.rerun()
+            else:
+                st.session_state.pop('upd_save_completed', None)
+                st.session_state.upd_save_lock = 0
+                st.error("Failed to save changes. Please check the logs and try again.")
+        except Exception:
+            st.session_state.pop('upd_save_completed', None)
+            st.session_state.upd_save_lock = 0
+            st.error("A temporary error occurred (possibly rate limit). Please try saving again.")
+
+    elif st.button("💾 Save Changes", key="upd_save_btn", type="primary"):
         if not st.session_state.upd_designs:
             st.error("Cannot save with no designs. Please add at least one design.")
             return
@@ -749,44 +898,11 @@ def render_update_sales_order(service: SalesOrderService, dropdown_data):
             st.error(f"Design validation failed: {e}")
             return
 
-        try:
-            # Set the recovery flag BEFORE the API call.
-            # If Streamlit interrupts the script mid-call, the flag remains set.
-            # On the next render, the recovery block at the top of this function
-            # detects it, cleans up state, and shows the success toast.
-            st.session_state.upd_save_completed = True
-
-            with st.spinner("Saving changes to Sales Order..."):
-                success = service.update_sales_order_designs(
-                    job_card_number=selected_jc_key,
-                    updated_designs=validated_designs,
-                    jc_data=st.session_state.upd_jc_data
-                )
-
-            if success:
-                # Pop the flag (recovery block won't fire since we handle it here)
-                st.session_state.pop('upd_save_completed', None)
-                st.session_state.upd_save_lock = 0
-                # Clear both the SO dropdown cache and the WR job card cache.
-                # The WR page's get_cached_job_cards uses @st.cache_data with no TTL,
-                # so without this call it would serve stale designs_json (missing the
-                # updated design data) until the user manually refreshed.
-                load_dropdowns.clear()
-                st.cache_data.clear()
-                st.session_state.upd_loaded_jc = None
-                st.session_state.upd_designs = []
-                st.session_state.upd_jc_data = None
-                st.success(f"✅ Sales Order {selected_jc_key} updated successfully! Go to Weight Receipt to weigh new/updated designs.")
-                time.sleep(2)
-                st.rerun()
-            else:
-                st.session_state.pop('upd_save_completed', None)
-                st.session_state.upd_save_lock = 0
-                st.error("Failed to save changes. Please check the logs and try again.")
-        except Exception:
-            st.session_state.pop('upd_save_completed', None)
-            st.session_state.upd_save_lock = 0
-            st.error("A temporary error occurred (possibly rate limit). Please try saving again.")
+        st.session_state.pending_upd_request = {
+            'selected_jc_key': selected_jc_key,
+            'validated_designs': validated_designs
+        }
+        _show_upd_confirmation_dialog(selected_jc_key, validated_designs)
 
 
 @st.cache_resource(ttl=600)
@@ -868,7 +984,7 @@ def render_sales_order_form() -> None:
                 render_assigned_coils_table()
             
             st.markdown("---")
-            if st.button("Save Full Sales Order"):
+            if st.session_state.get("so_submit_confirmed", False) or st.button("Save Full Sales Order"):
                 handle_final_submission(services.sales_order)
     elif order_type == "Full Coil Sale":
         render_full_coil_sale_form(services.sales_order, dropdown_data)

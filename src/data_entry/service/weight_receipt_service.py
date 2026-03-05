@@ -406,6 +406,38 @@ class WeightReceiptService:
             logger.error(f"Error clearing drafts for JC {job_card}: {e}")
             return False
 
+    def clear_drafts_for_design_indices(self, job_card: str, design_indices: list[int]) -> bool:
+        """Removes draft entries only for specified design indices of a job card.
+        
+        Preserves drafts for designs not in the list, so they can be
+        loaded again later without re-weighing.
+        """
+        try:
+            sheet_name = "Weight Receipt Draft"
+            df = self.google_service.get_worksheet_data(self.spreadsheet_id, sheet_name)
+            if df is None or df.empty:
+                return True
+
+            df['DesignIndex'] = pd.to_numeric(df['DesignIndex'], errors='coerce')
+
+            # Keep rows that either:
+            # 1. Don't belong to this job card, OR
+            # 2. Belong to this job card but their design index is NOT in the list
+            is_target_row = (df['JobCardNumber'] == job_card) & (df['DesignIndex'].isin(design_indices))
+            remaining_drafts_df = df[~is_target_row]
+
+            values_to_write_back = [remaining_drafts_df.columns.values.tolist()] + remaining_drafts_df.values.tolist()
+
+            worksheet = self.google_service.client.open_by_key(self.spreadsheet_id).worksheet(sheet_name)
+            worksheet.clear()
+            worksheet.update(values_to_write_back, 'A1')
+
+            logger.info(f"Cleared drafts for JC {job_card}, design indices {design_indices}.")
+            return True
+        except Exception as e:
+            logger.error(f"Error clearing drafts for JC {job_card}, indices {design_indices}: {e}")
+            return False
+
     def save_to_finished_goods(self, user_id: str, job_card: str, fg_qty: float, weight_receipt_number: str) -> bool:
         """
         Saves a record to the 'Finished Goods Transfer' sheet, ensuring headers are on row 2

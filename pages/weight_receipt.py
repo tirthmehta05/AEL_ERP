@@ -43,12 +43,80 @@ def initialize_wr_session_state():
         st.session_state.wr_design_sets = {}
     if 'wr_is_manual_entry' not in st.session_state:
         st.session_state.wr_is_manual_entry = False
+    if 'wr_pending_save' not in st.session_state:
+        st.session_state.wr_pending_save = None
 
 def _is_manual_entry_authorized():
     """Check if the current user is authorized for manual weight entry."""
     user_email = st.session_state.get('user_info', {}).get('username', '')
     authorized = [e.lower() for e in settings.weight_receipt.manual_entry_authorized_emails]
     return user_email.lower() in authorized
+
+
+@st.dialog("Confirm Weight Receipt Save", width="large")
+def _show_save_confirmation_dialog(candidate_designs, job_card_number, party_name):
+    """
+    Shows a modal dialog with all weighed designs for the user to review
+    and optionally deselect before saving. This is the final selection
+    step — the grid checkboxes are only used for weighing.
+    """
+    st.markdown(f"**Job Card:** {job_card_number} &nbsp; | &nbsp; **Party:** {party_name}")
+    st.markdown("Review the designs below. **Uncheck** any you don't want to save.")
+    st.markdown("---")
+
+    # Header row
+    cols = st.columns([0.8, 1, 1, 1, 1.5, 1.5, 2])
+    for col, header in zip(cols, ["Save", "Sets", "Width", "Length", "Actual Wt.", "Deduction", "Remark"]):
+        col.markdown(f"**{header}**")
+
+    confirmed_indices = []
+    total_weight = 0.0
+    total_deduction = 0.0
+
+    for item in candidate_designs:
+        c1, c2, c3, c4, c5, c6, c7 = st.columns([0.8, 1, 1, 1, 1.5, 1.5, 2])
+        with c1:
+            include = st.checkbox(
+                "Include",
+                value=True,
+                key=f"confirm_sel_{item['original_index']}",
+                label_visibility="collapsed"
+            )
+        with c2:
+            st.text(f"{item['sets']}")
+        with c3:
+            st.text(f"{item['width']}")
+        with c4:
+            st.text(f"{item['length']}")
+        with c5:
+            st.text(f"{item['actual_weight']:.2f}")
+        with c6:
+            st.text(f"{item['design_deduction']:.2f}")
+        with c7:
+            st.text(item['remark'] or "")
+
+        if include:
+            confirmed_indices.append(item['original_index'])
+            total_weight += item['actual_weight']
+            total_deduction += item['design_deduction']
+
+    st.markdown("---")
+    net_weight = total_weight - total_deduction
+    summary_cols = st.columns(3)
+    summary_cols[0].metric("Total Weight", f"{total_weight:.2f} kg")
+    summary_cols[1].metric("Total Deduction", f"{total_deduction:.2f} kg")
+    summary_cols[2].metric("Net Weight", f"{net_weight:.2f} kg")
+
+    confirm_col, cancel_col = st.columns(2)
+    with confirm_col:
+        if st.button("✅ Confirm Save", type="primary", use_container_width=True, disabled=len(confirmed_indices) == 0):
+            # Store confirmed indices in session state so the main page can proceed
+            st.session_state.wr_pending_save = confirmed_indices
+            st.rerun()
+    with cancel_col:
+        if st.button("❌ Cancel", use_container_width=True):
+            st.session_state.wr_pending_save = None
+            st.rerun()
 
 
 def _render_designs_grid(designs, drafts, is_itemized_mode=False, total_sets_in_jc=1, editable=True):
@@ -656,25 +724,55 @@ def render_weight_receipt_form():
 
                 st.markdown("---")
 
+                # --- Step 1: "Save Weight Receipt" button opens confirmation dialog ---
                 if st.button("Save Weight Receipt", key="save_wr_button_loose"):
+                    # Collect all designs with Actual Wt. > 0 as candidates
+                    candidate_designs = []
+                    for i, row in edited_df.iterrows():
+                        actual_weight = row["Actual Wt."]
+                        if actual_weight > 0:
+                            original_design_data = designs[row['original_index']]
+                            candidate_designs.append({
+                                'original_index': row['original_index'],
+                                'sets': row['Sets'],
+                                'width': original_design_data.get('width', 0),
+                                'length': original_design_data.get('length', 0),
+                                'actual_weight': actual_weight,
+                                'design_deduction': row['Design Deduction'],
+                                'remark': row['Remark'],
+                            })
+
+                    if not candidate_designs:
+                        st.error("Please weigh at least one item before saving.", icon="⚠️")
+                    else:
+                        _show_save_confirmation_dialog(
+                            candidate_designs,
+                            job_card_number=selected_jc_str,
+                            party_name=selected_party
+                        )
+
+                # --- Step 2: Process confirmed save (triggered by dialog rerun) ---
+                confirmed_indices = st.session_state.get('wr_pending_save')
+                if confirmed_indices is not None:
+                    # Clear the pending flag immediately
+                    st.session_state.wr_pending_save = None
+
                     # Check for existing save lock
                     current_time = time.time()
                     last_save_time = st.session_state.wr_save_locks.get(selected_jc_str, 0)
-                    if current_time - last_save_time < 30: # 30 seconds lock
+                    if current_time - last_save_time < 30:
                         st.warning("Save already in progress. Please wait...", icon="⏳")
                         st.stop()
-                    
+
                     st.session_state.wr_save_locks[selected_jc_str] = current_time
-                    
+
                     weighed_designs = []
                     actual_total_weight = 0.0
                     sum_design_deductions = 0.0
-                    
+
                     for i, row in edited_df.iterrows():
                         actual_weight = row["Actual Wt."]
-                        
-                        # Partial Weighing Logic: Only save items that have been weighed (>0)
-                        if actual_weight > 0:
+                        if row['original_index'] in confirmed_indices and actual_weight > 0:
                             actual_total_weight += actual_weight
                             sum_design_deductions += row["Design Deduction"]
                             original_design_data = designs[row['original_index']]
@@ -682,16 +780,16 @@ def render_weight_receipt_form():
                             weighed_design_data['actual_weight'] = actual_weight
                             weighed_design_data['remark'] = row["Remark"]
                             weighed_design_data['design_deduction'] = row["Design Deduction"]
-                            weighed_design_data['sets'] = row["Sets"] # Capture sets from grid
+                            weighed_design_data['sets'] = row["Sets"]
                             weighed_designs.append(WeighedDesignDetail(**weighed_design_data))
 
                     if not weighed_designs:
                         if selected_jc_str in st.session_state.wr_save_locks:
                             del st.session_state.wr_save_locks[selected_jc_str]
-                        st.error("Please weigh at least one item before saving.", icon="⚠️")
+                        st.error("No valid designs to save.", icon="⚠️")
                         st.stop()
 
-                    # In itemized mode, we use the sum of per-design deductions
+                    # In itemized mode, use the sum of per-design deductions
                     if is_itemized_mode:
                         deduction = sum_design_deductions
 
@@ -701,7 +799,7 @@ def render_weight_receipt_form():
                         total_expected_weight = sum(d.get('weight', 0) for d in original_designs)
                         cumulative_weight = services.weight_receipt.get_cumulative_weight_for_job_card(selected_jc_str)
                         new_cumulative_weight = cumulative_weight + (actual_total_weight - deduction)
-                        
+
                         if new_cumulative_weight > total_expected_weight:
                             st.warning(
                                 f"⚠️ Cumulative weight ({new_cumulative_weight:.2f} kg) exceeds total job card weight ({total_expected_weight:.2f} kg). "
@@ -709,7 +807,6 @@ def render_weight_receipt_form():
                                 icon="⚠️"
                             )
 
-                    # Generate weight receipt number at save time to prevent race conditions
                     generated_wr_number = services.weight_receipt.generate_weight_receipt_number()
 
                     request = WeightReceiptRequest(
@@ -738,11 +835,20 @@ def render_weight_receipt_form():
                                 fg_qty=actual_total_weight - deduction,
                                 weight_receipt_number=generated_wr_number
                             )
-                            services.weight_receipt.clear_weight_receipt_drafts(selected_jc['job_card_number'])
-                            st.session_state.wr_weights = {}
-                            st.session_state.wr_remarks = {}
-                            st.session_state.wr_total_weight = 0.0
-                            st.session_state.wr_draft_data = {}
+
+                            # Selective draft clearing: only clear drafts for designs that were saved
+                            services.weight_receipt.clear_drafts_for_design_indices(
+                                selected_jc['job_card_number'],
+                                confirmed_indices
+                            )
+
+                            # Clear session state only for saved design indices
+                            for idx in confirmed_indices:
+                                st.session_state.wr_weights.pop(idx, None)
+                                st.session_state.wr_remarks.pop(idx, None)
+                                st.session_state.wr_design_deductions.pop(idx, None)
+                                st.session_state.wr_design_sets.pop(idx, None)
+
                             st.session_state.last_selected_index = None
                             st.session_state.wr_is_manual_entry = False
 

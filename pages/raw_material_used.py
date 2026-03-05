@@ -12,6 +12,40 @@ from theme.components import render_main_header, end_card
 def load_dropdowns(_service: RMUsedService):
     return _service.get_dropdown_data()
 
+@st.dialog("Confirm Raw Material Usage", width="large")
+def _show_rm_used_confirmation_dialog(request_data: dict, available_weight: float):
+    """Shows a modal to confirm raw material used entry before saving."""
+    st.markdown("Please review the usage details below before submitting.")
+    st.markdown("---")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown(f"**Coil No:** {request_data['coil_no']}")
+        st.markdown(f"**Job Card No:** {request_data.get('card_no', 'N/A')}")
+        st.markdown(f"**Date:** {request_data['rm_used_date']}")
+        st.markdown(f"**Machine:** {request_data.get('machine', 'N/A')}")
+    with col2:
+        st.metric("Weight to Use", f"{request_data['weight']:.2f} kg")
+        st.metric("Available Weight", f"{available_weight:.2f} kg")
+        
+    st.markdown("---")
+    if request_data.get('remarks'):
+        st.markdown(f"**Remarks:** {request_data['remarks']}")
+    if request_data.get('no_of_boxes'):
+        st.markdown(f"**No. of Boxes:** {request_data['no_of_boxes']}")
+        
+    st.markdown("---")
+    col3, col4 = st.columns(2)
+    with col3:
+        if st.button("✅ Confirm Submit", type="primary", use_container_width=True):
+            st.session_state.rm_used_submit_confirmed = True
+            st.rerun()
+    with col4:
+        if st.button("❌ Cancel", use_container_width=True):
+            st.session_state.rm_used_submit_confirmed = False
+            st.session_state.rm_used_submit_lock = 0
+            st.rerun()
+
 
 def render_raw_material_used_form() -> None:
     """Renders the Raw Material Used form with interactive coil selection."""
@@ -94,7 +128,35 @@ def render_raw_material_used_form() -> None:
 
         submitted = st.form_submit_button("Submit Used Entry")
         
-        if submitted:
+        # If the user confirmed in the dialog
+        if st.session_state.pop("rm_used_submit_confirmed", False) and "pending_rm_used_request" in st.session_state:
+            request_data = st.session_state.pop("pending_rm_used_request")
+            try:
+                with st.spinner("Processing your request..."):
+                    request_obj = RMUsedRequest(**request_data)
+                    success = data_service.create_rm_used(request_obj)
+                
+                if success:
+                    st.success("Raw Material Used entry submitted successfully!")
+                    load_dropdowns.clear()
+                    st.session_state.rm_used_submit_lock = 0
+                    st.session_state.form_submitted_successfully = True
+                    time.sleep(2)  # Give time to see the success message
+                    st.rerun()
+                else:
+                    st.session_state.rm_used_submit_lock = 0
+                    st.error("Failed to save the entry. Please check application logs.")
+
+            except ValidationError as e:
+                st.session_state.rm_used_submit_lock = 0
+                error_msgs = [f"- **{err['loc'][0]}**: {err['msg']}" for err in e.errors()]
+                st.error("Data validation failed:\n" + "\n".join(error_msgs))
+            except Exception as e:
+                st.session_state.rm_used_submit_lock = 0
+                st.error(f"An unexpected error occurred: {e}")
+
+        # If the form submit button was clicked
+        elif submitted:
             current_time = time.time()
             if current_time - st.session_state.get('rm_used_submit_lock', 0) < 30:
                 st.warning("Save already in progress. Please wait...")
@@ -137,40 +199,19 @@ def render_raw_material_used_form() -> None:
                 st.session_state.rm_used_submit_lock = 0
                 st.warning("Please correct the following errors:\n\n" + "\n".join([f"- {e}" for e in errors]))
             else:
-                try:
-                    request_data = {
-                        "rm_used_date": st.session_state.rm_used_date,
-                        "card_no": st.session_state.card_no,
-                        "coil_no": st.session_state.coil_no,
-                        "weight": weight_float,
-                        "machine": st.session_state.machine,
-                        "remarks": st.session_state.remarks or "",
-                        "no_of_boxes": st.session_state.no_of_boxes or 0,
-                    }
-                    with st.spinner("Processing your request..."):
-                        request_obj = RMUsedRequest(**request_data)
-                        success = data_service.create_rm_used(request_obj)
-                    
-                    if success:
-                        st.success("Raw Material Used entry submitted successfully!")
-                        load_dropdowns.clear()
-                        st.session_state.rm_used_submit_lock = 0
-                        st.session_state.form_submitted_successfully = True
-                        st.rerun()
-                    else:
-                        st.session_state.rm_used_submit_lock = 0
-                        st.error("Failed to save the entry. Please check application logs.")
-
-                except ValidationError as e:
-                    st.session_state.rm_used_submit_lock = 0
-                    error_msgs = [f"- **{err['loc'][0]}**: {err['msg']}" for err in e.errors()]
-                    st.error("Data validation failed:\n" + "\n".join(error_msgs))
-                except Exception as e:
-                    st.session_state.rm_used_submit_lock = 0
-                    st.error(f"An unexpected error occurred: {e}")
-
-    st.markdown("</div>", unsafe_allow_html=True) # Close card-body
-    st.markdown("</div>", unsafe_allow_html=True) # Close card
+                request_data = {
+                    "rm_used_date": st.session_state.rm_used_date,
+                    "card_no": st.session_state.card_no,
+                    "coil_no": st.session_state.coil_no,
+                    "weight": weight_float,
+                    "machine": st.session_state.machine,
+                    "remarks": st.session_state.remarks or "",
+                    "no_of_boxes": st.session_state.no_of_boxes or 0,
+                }
+                
+                # Store pending request and open dialog
+                st.session_state.pending_rm_used_request = request_data
+                _show_rm_used_confirmation_dialog(request_data, st.session_state.available_weight)
 
 if __name__ == "__main__":
     render_raw_material_used_form()

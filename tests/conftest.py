@@ -17,6 +17,7 @@ _mock_st.secrets.get.return_value = {}
 sys.modules.setdefault("streamlit", _mock_st)
 sys.modules.setdefault("streamlit_msal", MagicMock())
 sys.modules.setdefault("gspread", MagicMock())
+sys.modules.setdefault("gspread.exceptions", MagicMock())
 sys.modules.setdefault("google.auth", MagicMock())
 sys.modules.setdefault("google.oauth2", MagicMock())
 sys.modules.setdefault("google.oauth2.service_account", MagicMock())
