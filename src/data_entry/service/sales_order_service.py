@@ -228,8 +228,8 @@ class SalesOrderService:
             row[17] = request.remark
             row[18] = request.order_date.month
             row[19] = ""  # Despatch Qty
-            row[20] = ""  # Shortclose/cancel
-            row[21] = request.order_date.year
+            row[20] = request.order_date.year  # Logged Year
+            row[21] = ""  # Shortclose/cancel
             row[22] = request.grade
             row[23] = request.coating
 
