@@ -207,18 +207,18 @@ class SalesOrderService:
     def save_full_coil_sale(self, request: FullCoilSaleRequest) -> bool:
         """Saves a new Full Coil Sale entry to the 'Sales Order' sheet."""
         try:
-            row = [None] * 24
+            row = [""] * 24
             row[0] = request.job_card
             row[1] = request.order_date.strftime("%d/%m/%Y")
             row[2] = request.po_no
-            row[3] = None  # Party Job No
+            row[3] = ""  # Party Job No
             row[4] = request.party_name
             row[5] = request.width
-            row[6] = None  # Length
-            row[7] = None  # MM
-            row[8] = None  # Stack
-            row[9] = None  # Hole Size
-            row[10] = None  # No Of Holes
+            row[6] = ""  # Length
+            row[7] = ""  # MM
+            row[8] = ""  # Stack
+            row[9] = ""  # Hole Size
+            row[10] = ""  # No Of Holes
             row[11] = 0  # No Of Set
             row[12] = request.qty
             row[13] = request.material_type
@@ -227,13 +227,13 @@ class SalesOrderService:
             row[16] = request.delivery_date.strftime("%d/%m/%Y")
             row[17] = request.remark
             row[18] = request.order_date.month
-            row[19] = None  # Despatch Qty
-            row[20] = None  # Shortclose/cancel
-            row[21] = request.order_date.year
+            row[19] = ""  # Despatch Qty
+            row[20] = request.order_date.year  # Logged Year
+            row[21] = ""  # Shortclose/cancel
             row[22] = request.grade
             row[23] = request.coating
 
-            success = self.google_service.append_data(self.spreadsheet_id, "Sales Order", [row])
+            success = self.google_service.insert_row_before_last(self.spreadsheet_id, "Sales Order", [row])
             if success:
                 logger.info(f"Successfully saved Full Coil Sale {request.job_card}.")
                 return True

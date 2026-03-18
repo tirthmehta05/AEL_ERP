@@ -50,11 +50,24 @@ def _show_bulk_upload_confirmation_dialog(valid_requests: list):
     # Create a DataFrame from the Pydantic models for preview
     preview_data = [req.model_dump() for req in valid_requests]
     df = pd.DataFrame(preview_data)
-    
-    # Reorder/rename columns for better display
-    display_cols = ['coil_number', 'rm_type', 'width', 'thk', 'coil_weight', 'coil_supplier']
-    display_df = df[[c for c in display_cols if c in df.columns]].copy()
-    display_df.columns = ['Coil Number', 'RM Type', 'Width (mm)', 'Thk (mm)', 'Weight (kg)', 'Supplier']
+
+    # Reorder/rename all columns for display
+    col_map = {
+        'coil_number': 'Coil Number',
+        'rm_receipt_date': 'Receipt Date',
+        'rm_type': 'RM Type',
+        'grade': 'Grade',
+        'thk': 'Thk (mm)',
+        'width': 'Width (mm)',
+        'coating': 'Coating',
+        'coil_weight': 'Weight (kg)',
+        'coil_supplier': 'Supplier',
+        'slit_ready': 'Slit/Ready',
+        'rate': 'Rate',
+        'po_number': 'PO Number',
+        'coil_location': 'Location',
+    }
+    display_df = df[[c for c in col_map if c in df.columns]].rename(columns=col_map)
     
     # Show at most 10 records for preview
     st.dataframe(display_df.head(10), use_container_width=True, hide_index=True)
