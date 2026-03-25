@@ -23,21 +23,24 @@ serverAddress = "localhost"
 # Whether to gather usage stats
 gatherUsageStats = false
 
-#[theme]
+[theme]
+# Force light mode so the app looks consistent on all PCs regardless of OS dark mode setting
+base = "light"
+
 # Primary color (hex color)
-#primaryColor = "#FF6B6B"
+primaryColor = "#4A4AFF"
 
 # Background color (hex color)
-#backgroundColor = "#0E1117"
+backgroundColor = "#F7F7FF"
 
 # Secondary background color (hex color)
-#secondaryBackgroundColor = "#262730"
+secondaryBackgroundColor = "#FFFFFF"
 
 # Text color (hex color)
-#textColor = "#FAFAFA"
+textColor = "#1A1A2E"
 
 # Font family
-#font = "sans serif"
+font = "sans serif"
 
 [client]
 # Show error details
