@@ -1,7 +1,7 @@
 import streamlit as st
 from theme import apply_theme
 from navigation import select_page
-from pages import home, data_entry, automation, slitting_plan, forms, pdf_generator
+from pages import home, process_map, data_entry, automation, slitting_plan, forms, pdf_generator
 from streamlit_msal import Msal
 from config import settings
 
@@ -27,6 +27,8 @@ def run_app(user_info: dict):
 
     if page == "🏠 Home":
         home.render()
+    elif page == "📋 Process Map":
+        process_map.render()
     elif page == "📝 Data Entry":
         data_entry.render()
 

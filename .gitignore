@@ -63,7 +63,6 @@ logs/
 uploads/
 data/temp/
 *.xlsx
-*.csv
 *.json
 *.pdf
 
@@ -116,3 +115,8 @@ dmypy.json
 
 # Google Service Account Credentials
 credentials/
+# CSV files — excluded by default, but track process map data sources
+*.csv
+!scripts/output/process_map.csv
+!scripts/output/sop_index.csv
+!scripts/output/business_areas.csv
