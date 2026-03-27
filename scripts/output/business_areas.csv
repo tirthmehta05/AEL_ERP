@@ -1,0 +1,6 @@
+name,description,icon,order
+Procurement & Trading,"Purchase of coils — direct trade, job work, or factory use",🛒,1
+Manufacturing,"Make to Order — job card, production, QC, dispatch",🏭,2
+Kapson FG Resale,Finished goods resale (motors) from Kapson to end customers,🔄,3
+Accounting & Finance,"TDS, GST, Salary, Expenses, Audit, and compliance",💰,4
+Daily & Weekly Operations,"Recurring operational tasks — banking, reporting, filing",📅,5

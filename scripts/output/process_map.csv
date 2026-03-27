@@ -1,0 +1,196 @@
+business_area,process,stage,stage_order,path,step_order,step_name,step_type,responsible,key_documents,notes,sop_title,sop_link,sop_owner,frequency,tools_used
+Procurement & Trading,Purchase of Coils (Workflow 1),Purchase Initiation,1,,1,Purchase coils from Source Vendor,Action,Procurement,Purchase Order (PO),,Coil Purchase Process,,sarikabhise@ambaltd.com,Per Order,Tally
+Procurement & Trading,Purchase of Coils (Workflow 1),Destination Decision,2,Path A — Direct Trade,1,Sell directly from Vendor location to Customer,Decision Gate,Sales,"Sales Invoice, E-Way Bill",End of process for direct trade,,,,Per Order,
+Procurement & Trading,Purchase of Coils (Workflow 1),Destination Decision,2,Path B — Job Worker,2,Send material to Job Worker's location,Decision Gate,Procurement / Logistics,Delivery Challan,Material moves to JW site,,,,Per Order,
+Procurement & Trading,Purchase of Coils (Workflow 1),Destination Decision,2,Path C — Factory,3,Send material to AEL Factory location,Decision Gate,Procurement / Logistics,GRN,Material moves to AEL Factory,,,,Per Order,
+Procurement & Trading,Purchase of Coils (Workflow 1),Processing & Usage,3,Path B — At Job Worker,1,Trade — Sell directly from Job Worker site,Action,Sales,Sales Invoice,Direct sale without further processing,,,,Per Order,
+Procurement & Trading,Purchase of Coils (Workflow 1),Processing & Usage,3,Path B — At Job Worker,2,Slitting — Process into Slit Coils,Action,Production / JW,"Slit Plan, JW Invoice",Outsourced slitting at JW location,,,,Per Order,
+Procurement & Trading,Purchase of Coils (Workflow 1),Processing & Usage,3,Path B — At Job Worker,3,Sell Slit Coils to Customer,Action,Sales,"Sales Invoice, E-Way Bill",Sub-path after slitting,,,,Per Order,
+Procurement & Trading,Purchase of Coils (Workflow 1),Processing & Usage,3,Path B — At Job Worker,4,Send Slit Coils to AEL Factory for manufacturing,Action,Logistics,"Delivery Challan, GRN",Sub-path: triggers Workflow 2,,,,Per Order,
+Procurement & Trading,Purchase of Coils (Workflow 1),Processing & Usage,3,Path C — At Factory,1,Internal Use — Used for AEL Manufacturing processes,Action,Production,Job Card,Triggers Make to Order (Workflow 2),,,,Per Order,
+Procurement & Trading,Purchase of Coils (Workflow 1),Processing & Usage,3,Path C — At Factory,2,Resale — Direct trade/resale of the coil,Action,Sales,Sales Invoice,"No manufacturing, direct resale",,,,Per Order,
+Manufacturing,Make to Order (Workflow 2),Trigger,1,,1,Receive Make to Order request,Action,Sales,Customer PO,,,,,Per Order,AEL ERP
+Manufacturing,Make to Order (Workflow 2),Trigger,1,,2,Create Job Card,Action,Production Manager,Job Card,,Job Card Creation Process,,riyatelawade@ambaltd.com,Per Order,AEL ERP
+Manufacturing,Make to Order (Workflow 2),Material Availability Check,2,Scenario A: Slit Material Available,1,Allocate material to Job Card,Action,Stores,Stock Allocation,Soft-booking to prevent double-usage,Raw material allocation,,riyatelawade@ambaltd.com,Per Order,AEL ERP
+Manufacturing,Make to Order (Workflow 2),Material Availability Check,2,Scenario A: Slit Material Available,2,In-house production,Action,Production Team,Job Card / Work Order,,Raw material used sheet,,riyatelawade@ambaltd.com,Per Order,AEL ERP
+Manufacturing,Make to Order (Workflow 2),Material Availability Check,2,Scenario A: Slit Material Available,3,QC Check (Gate 1),Decision Gate,QC Team,QC Report,,,,,Per Order,AEL ERP
+Manufacturing,Make to Order (Workflow 2),Material Availability Check,2,Scenario A: Slit Material Available,4,IF PASS: Generate Weight Receipt,IF PASS,Production,Weight Receipt,,WEIGHT RECEIPT,,riyatelawade@ambaltd.com,Per Order,AEL ERP
+Manufacturing,Make to Order (Workflow 2),Material Availability Check,2,Scenario A: Slit Material Available,5,IF PASS: Record Finished Goods,IF PASS,Stores / Production,Stock Ledger Update,,,,,Per Order,AEL ERP
+Manufacturing,Make to Order (Workflow 2),Material Availability Check,2,Scenario A: Slit Material Available,6,IF PASS: Packing,IF PASS,Production,Packing List,,,,,Per Order,AEL ERP
+Manufacturing,Make to Order (Workflow 2),Material Availability Check,2,Scenario A: Slit Material Available,7,IF PASS: Delivery Challan,IF PASS,Logistics / Accounts,"E-Way Bill, Invoice, Packing List, MTC",,,,,Per Order,AEL ERP
+Manufacturing,Make to Order (Workflow 2),Material Availability Check,2,Scenario A: Slit Material Available,8,IF PASS: Despatch,IF PASS,Logistics,Lorry Receipt (LR),,,,,Per Order,AEL ERP
+Manufacturing,Make to Order (Workflow 2),Material Availability Check,2,Scenario A: Slit Material Available,9,IF PASS: Sales Invoice,IF PASS,Accounts,Sales Invoice,,Mfg Invoice and Eway Bill,,riyatelawade@ambaltd.com,Per Order,AEL ERP
+Manufacturing,Make to Order (Workflow 2),Material Availability Check,2,Scenario A: Slit Material Available,10,IF FAIL: Rework Loop → Re-enter QC,IF FAIL,Production,Rework Report,Does not scrap — enters Rework state,,,,Per Order,AEL ERP
+Manufacturing,Make to Order (Workflow 2),Material Availability Check,2,Scenario B1: Full Coil — In-House Processing,1,Allocate Full Coil,Action,Stores,Stock Allocation,,,,,Per Order,AEL ERP
+Manufacturing,Make to Order (Workflow 2),Material Availability Check,2,Scenario B1: Full Coil — In-House Processing,2,Rough Cutting / Slitting (In-House),Action,Production,Slit Plan,,SLITTING SOP,,sarikabhise@ambaltd.com,Per Order,AEL ERP
+Manufacturing,Make to Order (Workflow 2),Material Availability Check,2,Scenario B1: Full Coil — In-House Processing,3,QC Check,Decision Gate,QC Team,QC Report,,,,,Per Order,AEL ERP
+Manufacturing,Make to Order (Workflow 2),Material Availability Check,2,Scenario B1: Full Coil — In-House Processing,4,IF PASS: Proceed to Finished Goods logic (same as Scenario A),IF PASS,Production,,Follow Scenario A pass path from Weight Receipt onward,,,,Per Order,AEL ERP
+Manufacturing,Make to Order (Workflow 2),Material Availability Check,2,Scenario B2: Full Coil — Job Work (Outsourced),1,Check if material is at Job Worker site,Decision Gate,Procurement,,,,,,Per Order,"AEL ERP, Tally"
+Manufacturing,Make to Order (Workflow 2),Material Availability Check,2,Scenario B2: Full Coil — Job Work (Outsourced),2,IF NO: Trigger Procurement Flow (Workflow 1),IF FAIL,Procurement,Purchase Order,Links to Workflow 1,,,,Per Order,"AEL ERP, Tally"
+Manufacturing,Make to Order (Workflow 2),Material Availability Check,2,Scenario B2: Full Coil — Job Work (Outsourced),3,IF YES: Issue Slit Plan,IF PASS,Production / Procurement,Slit Plan,,,,,Per Order,"AEL ERP, Tally"
+Manufacturing,Make to Order (Workflow 2),Material Availability Check,2,Scenario B2: Full Coil — Job Work (Outsourced),4,Job Worker processes material,Action,Job Worker,JW Invoice,,,,,Per Order,"AEL ERP, Tally"
+Manufacturing,Make to Order (Workflow 2),Material Availability Check,2,Scenario B2: Full Coil — Job Work (Outsourced),5,Receive Material → Material In (GRN),Action,Stores / QC,Goods Receipt Note (GRN),"Capture Coil No, Heat No, Weight",GRN [GOOD RECEIVED NOTE],,riyatelawade@ambaltd.com,Per Order,"AEL ERP, Tally"
+Manufacturing,Make to Order (Workflow 2),Material Availability Check,2,Scenario B2: Full Coil — Job Work (Outsourced),6,QC Check (Gate 2),Decision Gate,QC Team,QC Report,,,,,Per Order,"AEL ERP, Tally"
+Manufacturing,Make to Order (Workflow 2),Material Availability Check,2,Scenario B2: Full Coil — Job Work (Outsourced),7,IF PASS: Add to Inventory → Invoice Booking (JW Charges) → FG logic,IF PASS,Stores / Accounts,"Stock Ledger, JW Invoice",,,,,Per Order,"AEL ERP, Tally"
+Manufacturing,Make to Order (Workflow 2),Material Availability Check,2,Scenario B2: Full Coil — Job Work (Outsourced),8,IF FAIL: Raise Debit Note → Material Return → Receive Credit Note,IF FAIL,Accounts / QC,"Debit Note, Material Return",Blocks item from production,Credit Note (Purchase),,aditipatel@ambaltd.com,Per Order,"AEL ERP, Tally"
+Manufacturing,Make to Order (Workflow 2),Material Availability Check,2,Scenario C: Material Not Available (Procurement),1,Generate Purchase Order (PO),Action,Procurement,Purchase Order (PO),,JSW Purchase Import SOP,,akshaysawant@ambaltd.com,Per Order,"AEL ERP, Tally"
+Manufacturing,Make to Order (Workflow 2),Material Availability Check,2,Scenario C: Material Not Available (Procurement),2,Receive Proforma Invoice → Payment to Supplier,Action,Accounts,"Proforma Invoice, Payment Voucher",System must allow payment before material receipt,,,,Per Order,"AEL ERP, Tally"
+Manufacturing,Make to Order (Workflow 2),Material Availability Check,2,Scenario C: Material Not Available (Procurement),3,Delivery → Material In (GRN),Action,Stores / QC,Goods Receipt Note (GRN),"Capture Coil No, Heat No, Weight",GRN [GOOD RECEIVED NOTE],,riyatelawade@ambaltd.com,Per Order,"AEL ERP, Tally"
+Manufacturing,Make to Order (Workflow 2),Material Availability Check,2,Scenario C: Material Not Available (Procurement),4,QC Check (Gate 3),Decision Gate,QC Team,QC Report,,,,,Per Order,"AEL ERP, Tally"
+Manufacturing,Make to Order (Workflow 2),Material Availability Check,2,Scenario C: Material Not Available (Procurement),5,IF PASS: Add to Inventory → Invoice Booking,IF PASS,Stores / Accounts,"Stock Ledger, Supplier Invoice",,,,,Per Order,"AEL ERP, Tally"
+Manufacturing,Make to Order (Workflow 2),Material Availability Check,2,Scenario C: Material Not Available (Procurement),6,IF FAIL: Raise Debit Note → Material Return,IF FAIL,Accounts / QC,"Debit Note, Material Return",Blocks item from production,,,,Per Order,"AEL ERP, Tally"
+Manufacturing,Make to Order (Workflow 2),Fulfillment,3,,1,Weight Receipt Generation,Action,Production,Weight Receipt,,WEIGHT RECEIPT,,riyatelawade@ambaltd.com,Per Order,"AEL ERP, Tally"
+Manufacturing,Make to Order (Workflow 2),Fulfillment,3,,2,Record Finished Goods,Action,Stores / Production,Stock Ledger Update,,Stock in Taiin [Drive sheet],,riyatelawade@ambaltd.com,Per Order,"AEL ERP, Tally"
+Manufacturing,Make to Order (Workflow 2),Fulfillment,3,,3,Packing,Action,Production,Packing List,,,,,Per Order,"AEL ERP, Tally"
+Manufacturing,Make to Order (Workflow 2),Fulfillment,3,,4,Delivery Challan & Dispatch Documents,Action,Logistics / Accounts,"E-Way Bill, Invoice, Packing List, MTC, LR",,Mfg Invoice and Eway Bill,,riyatelawade@ambaltd.com,Per Order,"AEL ERP, Tally"
+Manufacturing,Make to Order (Workflow 2),Fulfillment,3,,5,Despatch,Action,Logistics,"Lorry Receipt (LR), Proof of Delivery",,,,,Per Order,"AEL ERP, Tally"
+Manufacturing,Make to Order (Workflow 2),Fulfillment,3,,6,Sales Invoice,Action,Accounts,"Sales Invoice, E-Invoice",Triggers Accounts Receivable,INVOICE PRINTING SOP,,shreyapatil@ambaltd.com,Per Order,"AEL ERP, Tally"
+Kapson FG Resale,Kapson Finished Goods (T2),New Order,1,,1,"Receive PO from End Customer (e.g., Siemens)",Action,Sales,Customer PO,,,,,Per Order,Tally
+Kapson FG Resale,Kapson Finished Goods (T2),New Order,1,,2,Confirm delivery timeline with Kapson,Action,Sales / Procurement,Email / Confirmation,Kapson production schedule is main dependency,,,,Per Order,Tally
+Kapson FG Resale,Kapson Finished Goods (T2),New Order,1,,3,Create Sales Order in Tally,Action,Accounts / Sales Admin,Sales Order (SO),,,,,Per Order,Tally
+Kapson FG Resale,Kapson Finished Goods (T2),Procurement,2,,1,Generate PO to Kapson for Motors,Action,Procurement,Purchase Order (PO),PO is for finished goods,,,,Per Order,Tally
+Kapson FG Resale,Kapson Finished Goods (T2),Procurement,2,,2,Schedule Pickup of Motors from Kapson,Action,Logistics,,Coordinate with Kapson dispatch,,,,Per Order,Tally
+Kapson FG Resale,Kapson Finished Goods (T2),Goods Receipt & QC,3,,1,Receive Finished Motors from Kapson,Action,Stores / QC,Goods Receipt Note (GRN),,,,,Per Order,Tally
+Kapson FG Resale,Kapson Finished Goods (T2),Goods Receipt & QC,3,,2,Perform Quality Check on received motors,Action,QC Team,QC Report,Check against specifications,,,,Per Order,Tally
+Kapson FG Resale,Kapson Finished Goods (T2),Goods Receipt & QC,3,,3,Update Finished Goods Inventory,Action,Stores,Stock Ledger Update,,,,,Per Order,Tally
+Kapson FG Resale,Kapson Finished Goods (T2),Logistics & Dispatch,4,,1,Arrange Transportation to End Customer,Action,Logistics,Lorry Receipt (LR),,,,,Per Order,Tally
+Kapson FG Resale,Kapson Finished Goods (T2),Logistics & Dispatch,4,,2,Prepare E-Way Bill & Dispatch Documents,Action,Logistics / Accounts,"E-Way Bill, Invoice, Packing List",,,,,Per Order,Tally
+Kapson FG Resale,Kapson Finished Goods (T2),Invoicing & Payment,5,,1,Generate Sales Invoice for End Customer,Action,Accounts,Sales Invoice,,,,,Per Order,Tally
+Kapson FG Resale,Kapson Finished Goods (T2),Invoicing & Payment,5,,2,Process Purchase Invoice from Kapson,Action,Accounts,Supplier Invoice,Reconcile against PO to Kapson,,,,Per Order,Tally
+Kapson FG Resale,Kapson Finished Goods (T2),Invoicing & Payment,5,,3,Reconcile Payment from End Customer,Action,Accounts,Bank Statement,,,,,Per Order,Tally
+Kapson FG Resale,Kapson Finished Goods (T2),Invoicing & Payment,5,,4,Release Payment to Kapson,Action,Accounts,Payment Voucher,Adhere to agreed payment terms,,,,Per Order,Tally
+Accounting & Finance,Monthly — Admin,Admin,1,,1,Loan Interest Payment  - Axis Bank,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — Admin,Admin,1,,2,Loan Interest Payment  - Yes Bank,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — Admin,Admin,1,,3,MOU Qty Checking and informing,Action,pranayshinde,,,,,pranayshinde@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — Admin,Admin,1,,4,Check Auto Pay - MSEDCL,Action,aditipatel,,,,,aditipatel@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — Admin,Admin,1,,5,Check Auto Pay - Adani,Action,aditipatel,,,,,aditipatel@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — Admin,Admin,1,,6,Check Auto Pay - BSNL,Action,aditipatel,,,,,aditipatel@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — Admin,Admin,1,,7,Credit Insurance - Debtors Ageing,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — Admin,Admin,1,,8,AMBA SSE Interest,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — Admin,Admin,1,,9,Printing - Bank Statement,Action,akshaysawant,,,,,akshaysawant@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — TDS,TDS,2,,1,1. Creditors Ledger Matching,Action,aditipatel,,,,,aditipatel@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — TDS,TDS,2,,2,2. Working,Action,aditipatel,,,,,aditipatel@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — TDS,TDS,2,,3,3. Check/Review,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — TDS,TDS,2,,4,4. Payment,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — GST-GSTR1,GST-GSTR1,3,,1,1. Compile Data,Action,aditipatel,,,,,aditipatel@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — GST-GSTR1,GST-GSTR1,3,,2,2. Match E-invoice excel with books,Action,aditipatel,,,,,aditipatel@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — GST-GSTR1,GST-GSTR1,3,,3,3. Prepare summary,Action,aditipatel,,,,,aditipatel@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — GST-GSTR1,GST-GSTR1,3,,4,4. Review,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — GST-GSTR1,GST-GSTR1,3,,5,5. Send to CA and confirm filing,Action,aditipatel,,,,,aditipatel@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — GST-GSTR2,GST-GSTR2,4,,1,1. Download form 2B,Action,aditipatel,,,,,aditipatel@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — GST-GSTR2,GST-GSTR2,4,,2,2. Match with books,Action,aditipatel,,,,,aditipatel@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — GST-GSTR2,GST-GSTR2,4,,3,3. Follow up if missing invoice,Action,aditipatel,,,,,aditipatel@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — GST-GSTR3B,GST-GSTR3B,5,,1,1. Prepare working,Action,aditipatel,,,,,aditipatel@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — GST-GSTR3B,GST-GSTR3B,5,,2,2. Review and Approval,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — GST-GSTR3B,GST-GSTR3B,5,,3,3. Send to CA for review and upload,Action,aditipatel,,,,,aditipatel@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — GST-GSTR3B,GST-GSTR3B,5,,4,4. Make Payment,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — GST-GSTR3B,GST-GSTR3B,5,,5,5. Send to CA and confirm filing,Action,aditipatel,,,,,aditipatel@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — Salary,Salary,6,,1,1. Check Punching and Attendance Excel,Action,sarikabhise,,,,,sarikabhise@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — Salary,Salary,6,,2,2. Review Salary Working,Action,sarikabhise,,,,,sarikabhise@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — Salary,Salary,6,,3,3. Get PF and ESIC calculation from professional,Action,sarikabhise,,,,,sarikabhise@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — Salary,Salary,6,,4,4. Verify and make changes if needed,Action,sarikabhise,,,,,sarikabhise@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — Salary,Salary,6,,5,5. Salary Payment,Action,aditipatel,,,,,aditipatel@ambaltd.com;sarikabhise@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — Salary,Salary,6,,6,6. PF ESIC Payment,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — ExpensePay,ExpensePay,7,,1,1. Expenses Working,Action,aditipatel,,,,,aditipatel@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — ExpensePay,ExpensePay,7,,2,2. Expense Review,Action,sarikabhise,,,,,sarikabhise@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — ExpensePay,ExpensePay,7,,3,3. Expenses Payment,Action,aditipatel,,,,,aditipatel@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — Personal,Personal,8,,1,1. Bank Update- Personal,Action,akshaysawant,,,,,akshaysawant@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — Personal,Personal,8,,2,2. Clear Suspense in Personal Ac,Action,akshaysawant,,,,,akshaysawant@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — PettyCash,PettyCash,9,,1,Review and Sign Pune Petty cash,Action,sarikabhise,,,,,sarikabhise@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — StockTransfer,StockTransfer,10,,1,1. Check Physical Stock on Floor,Action,snehakadam,,,,,snehakadam@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — StockTransfer,StockTransfer,10,,2,2. Check Material at Slitter if any,Action,sarikabhise,,,,,sarikabhise@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — StockTransfer,StockTransfer,10,,3,2. Confirm Stock n MR,Action,sarikabhise,,,,,sarikabhise@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — StockTransfer,StockTransfer,10,,4,3. Review,Action,sarikabhise,,,,,sarikabhise@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — StockTransfer,StockTransfer,10,,5,4. JV Book,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — Kapson,Kapson,11,,1,1. IRR Working,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — Kapson,Kapson,11,,2,2. IRR Finalization,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — Kapson,Kapson,11,,3,3. Issue IRR Debit/Credit notes,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com; aditipatel@ambaltd.com,Monthly,Tally
+Accounting & Finance,Monthly — MFG Profit,MFG Profit,12,,1,Calcualte Mfg profit,Action,sarikabhise,,,,,sarikabhise@ambaltd.com,Monthly,Tally
+Accounting & Finance,Quarterly — AdvTax,AdvTax,13,,1,1. Follow Up with CA for Challan,Action,aditipatel,,,,,aditipatel@ambaltd.com,Quarterly,Tally
+Accounting & Finance,Quarterly — AdvTax,AdvTax,13,,2,2. Payment,Action,aditipatel,,,,,aditipatel@ambaltd.com,Quarterly,Tally
+Accounting & Finance,Quarterly — Audit,Audit,14,,1,1. Auditors requirement,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com;aditipatel@ambaltd.com,Quarterly,Tally
+Accounting & Finance,Quarterly — Audit,Audit,14,,2,2. Receive and Verify Financials,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com;sarikabhise@ambaltd.com,Quarterly,Tally
+Accounting & Finance,Quarterly — Audit,Audit,14,,3,3. Arrange Meeting with Auditors,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com,Quarterly,Tally
+Accounting & Finance,Quarterly — Audit,Audit,14,,4,4. Finalize Financials,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com,Quarterly,Tally
+Accounting & Finance,Quarterly — Audit,Audit,14,,5,5. Report Upload on BSE,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com,Quarterly,Tally
+Accounting & Finance,Quarterly — Audit,Audit,14,,6,6. Advertise report in newspaper,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com,Quarterly,Tally
+Accounting & Finance,Quarterly — Debtors,Debtors,15,,1,1. Request and Follow up for Confirmation,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com,Quarterly,Tally
+Accounting & Finance,Quarterly — Debtors,Debtors,15,,2,2. Ledger matching,Action,aditipatel,,,,,aditipatel@ambaltd.com;akshaysawant@ambaltd.com,Quarterly,Tally
+Accounting & Finance,Quarterly — Debtors,Debtors,15,,3,3. Reconciliation,Action,aditipatel,,,,,aditipatel@ambaltd.com;akshaysawant@ambaltd.com,Quarterly,Tally
+Accounting & Finance,Quarterly — Debtors,Debtors,15,,4,4. Review,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com,Quarterly,Tally
+Accounting & Finance,Quarterly — TDS-Return,TDS-Return,16,,1,1. Send TDS working and challan for 3 months to CA,Action,aditipatel,,,,,aditipatel@ambaltd.com,Quarterly,Tally
+Accounting & Finance,Quarterly — TDS-Return,TDS-Return,16,,2,2. Review Report from CA,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com,Quarterly,Tally
+Accounting & Finance,Quarterly — TDS-Return,TDS-Return,16,,3,3. File Return,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com,Quarterly,Tally
+Accounting & Finance,Quarterly — Others,Others,17,,1,Credit Insurance - P and L Report,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com,Quarterly,Tally
+Daily & Weekly Operations,Daily — Daily-Kapson,Daily-Kapson,1,,1,Check payment and receipt of Kapsons from software,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily-Kapson,Daily-Kapson,1,,2,Check sales and purchases of Kapsons from software,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily-Kapson,Daily-Kapson,1,,3,Printing- Sales and Purchase Invoice,Action,akshaysawant,,,,,akshaysawant@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily-Kapson,Daily-Kapson,1,,4,Invoices Dsc & 3% sheet update,Action,akshaysawant,,,,,akshaysawant@ambaltd.com ; shreyapatil@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily-Kapson,Daily-Kapson,1,,5,Internal payment transaction & kps- collection update,Action,akshaysawant,,,,,akshaysawant@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily-Kapson,Daily-Kapson,1,,6,Collection Against Ref Check- entry done by Kapsons,Action,akshaysawant,,,,,akshaysawant@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily-Kapson,Daily-Kapson,1,,7,Daily Reporting-Pune Jalandhar,Action,akshaysawant,,,,,akshaysawant@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily-Kapson,Daily-Kapson,1,,8,48 Crore Kapsons Utilization Sheet Update,Action,akshaysawant,,,,,akshaysawant@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily,Daily,2,,1,Cash Payment If any,Action,aditipatel,,,,,aditipatel@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily,Daily,2,,2,Check Creditor Payments ,Action,aditipatel,,,,,aditipatel@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily,Daily,2,,3,Check Purchase /Service /Expense Bill in Purchase File,Action,aditipatel,,,,,aditipatel@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily,Daily,2,,4,Check and Pass Expense Accounting Entry - after approval,Action,aditipatel,,,,,aditipatel@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily,Daily,2,,5,Maintan Proper Filing,Action,aditipatel,,,,,aditipatel@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily,Daily,2,,6,Check SAIL Drive sheet Update ,Action,aditipatel,,,,,aditipatel@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily,Daily,2,,7,Check JSW Drive sheet Update ,Action,aditipatel,,,,,aditipatel@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily,Daily,2,,8,Debit / Credit Notes Booking,Action,aditipatel,,,,,aditipatel@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily,Daily,2,,9,Transfer Yes o HDFC (if HDFC Negative),Action,aditipatel,,,,,aditipatel@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily,Daily,2,,10,Transfer to Loan (Axis or Yes),Action,aditipatel,,,,,aditipatel@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily,Daily,2,,11,Process Creditor Payment if Any,Action,akshaysawant,,,,,akshaysawant@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily,Daily,2,,12,Deposit Cheque If any,Action,akshaysawant,,,,,akshaysawant@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily,Daily,2,,13,Purchase Entry Import Kapsons,Action,akshaysawant,,,,,akshaysawant@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily,Daily,2,,14,Sales Entry Import Kapsons,Action,akshaysawant,,,,,akshaysawant@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily,Daily,2,,15,Omkareshwar - Purchase / Expense booking if any,Action,akshaysawant,,,,,akshaysawant@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily,Daily,2,,16,Omkareshwar - Petty Cash Booking if Any,Action,akshaysawant,,,,,akshaysawant@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily-Banking,Daily-Banking,3,,1,AEL Bank Update ,Action,akshaysawant,,,,,akshaysawant@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily-Banking,Daily-Banking,3,,2,SSE bank update,Action,akshaysawant,,,,,akshaysawant@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily-Banking,Daily-Banking,3,,3,OD Bank Update,Action,akshaysawant,,,,,akshaysawant@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily-Management Reporting,Daily-Management Reporting,4,,1,MR - Collection Update,Action,jagrutisutar,,,,,jagrutisutar@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily-Management Reporting,Daily-Management Reporting,4,,2,MR - Production,Action,riyatelawade,,,,,riyatelawade@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily-Management Reporting,Daily-Management Reporting,4,,3,MR - Despatch,Action,riyatelawade,,,,,riyatelawade@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily-Management Reporting,Daily-Management Reporting,4,,4,MR - Daily Scrap,Action,riyatelawade,,,,,riyatelawade@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily-Management Reporting,Daily-Management Reporting,4,,5,MR- Raw Material Allocation,Action,snehakadam,,,,,snehakadam@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily Others,Daily Others,5,,1,Auction Report,Action,pranayshinde,,,,,pranayshinde@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily Others,Daily Others,5,,2,Follow Up for New Trd Orders,Action,pranayshinde,,,,,pranayshinde@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily Others,Daily Others,5,,3,Dispatch Planning / Vehicle Arrangement,Action,pranayshinde,,,,,pranayshinde@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily Others,Daily Others,5,,4,Prepare Payment Plan for Auction,Action,pranayshinde,,,,,pranayshinde@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily Others,Daily Others,5,,5,Purchase Booking - Shivshakti,Action,jagrutisutar,,,,,jagrutisutar@ambaltd.com ; pranayshinde@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily Others,Daily Others,5,,6,Sales Booking - Shivshakti,Action,jagrutisutar,,,,,jagrutisutar@ambaltd.com ; pranayshinde@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily Others,Daily Others,5,,7,"Purchase Booking - POSCO, JSW, SAIL, OTHERS",Action,jagrutisutar,,,,,jagrutisutar@ambaltd.com ; pranayshinde@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily Others,Daily Others,5,,8,"Sales Booking - POSCO, JSW, SAIL, OTHERS",Action,jagrutisutar,,,,,jagrutisutar@ambaltd.com ; pranayshinde@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily Others,Daily Others,5,,9,SAIL Drive sheet Update ,Action,pranayshinde,,,,,pranayshinde@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily Others,Daily Others,5,,10,JSW Sheet Update,Action,pranayshinde,,,,,pranayshinde@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily Others,Daily Others,5,,11,Import Trading Purchase Bills to tally,Action,jagrutisutar,,,,,jagrutisutar@ambaltd.com ; pranayshinde@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily Others,Daily Others,5,,12,Filing - Trd related documents if Any,Action,jagrutisutar,,,,,jagrutisutar@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily Others,Daily Others,5,,13,Production Data - Floor 15 mins,Action,riyatelawade,,,,,riyatelawade@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily Others,Daily Others,5,,14,Filing - All Mfg related documents,Action,riyatelawade,,,,,riyatelawade@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily Others,Daily Others,5,,15,Weight - FG,Action,riyatelawade,,,,,riyatelawade@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily Others,Daily Others,5,,16,Prepare Packing List for Despatch,Action,snehakadam,,,,,snehakadam@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily Others,Daily Others,5,,17,Create Mfg Bills,Action,snehakadam,,,,,snehakadam@ambaltd.com ; riyatelawade@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily Others,Daily Others,5,,18,Sales Order,Action,snehakadam,,,,,snehakadam@ambaltd.com ; riyatelawade@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily Others,Daily Others,5,,19,Check Minimum Stock,Action,snehakadam,,,,,snehakadam@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily Others,Daily Others,5,,20,Prepare Dispatch Schedule,Action,snehakadam,,,,,snehakadam@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily Others,Daily Others,5,,21,Follow Up for New Orders,Action,snehakadam,,,,,snehakadam@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily Others,Daily Others,5,,22,Check Management Report,Action,snehakadam,,,,,snehakadam@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily Others,Daily Others,5,,23,Check Taiin Sheet,Action,snehakadam,,,,,snehakadam@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily Others,Daily Others,5,,24,Coil Cutting - Canwin books,Action,riyatelawade,,,,,riyatelawade@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily Others,Daily Others,5,,25,Coil Cutting - Floor book,Action,riyatelawade,,,,,riyatelawade@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily Others,Daily Others,5,,26,Weight Calibration ,Action,riyatelawade,,,,,riyatelawade@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Daily Others,Daily Others,5,,27,Update Despatch Book with Bill number,Action,riyatelawade,,,,,riyatelawade@ambaltd.com,Daily,
+Daily & Weekly Operations,Daily — Admin,Admin,6,,1,Invoice Attachements,Action,akshaysawant,,,,,akshaysawant@ambaltd.com,Daily,
+Daily & Weekly Operations,Weekly — Weekly Others,Weekly Others,1,,1,Kapsons Payments,Action,aditipatel,,,,,aditipatel@ambaltd.com,Weekly,
+Daily & Weekly Operations,Weekly — Weekly Others,Weekly Others,1,,2,Petty Cash Mumbai Checking,Action,aditipatel,,,,,aditipatel@ambaltd.com,Weekly,
+Daily & Weekly Operations,Weekly — Weekly Others,Weekly Others,1,,3,SAIL Credit Debit Notes,Action,aditipatel,,,,,aditipatel@ambaltd.com,Weekly,
+Daily & Weekly Operations,Weekly — Weekly Others,Weekly Others,1,,4,Petty Cash Mumbai Office,Action,akshaysawant,,,,,akshaysawant@ambaltd.com,Weekly,
+Daily & Weekly Operations,Weekly — Weekly Others,Weekly Others,1,,5,Outstanding Report,Action,pranayshinde,,,,,pranayshinde@ambaltd.com,Weekly,
+Daily & Weekly Operations,Weekly — Weekly Others,Weekly Others,1,,6,Outstading follow up Email to Customers,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com,Weekly,
+Daily & Weekly Operations,Weekly — Weekly Others,Weekly Others,1,,7,SAIL Drive Sheet,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com,Weekly,
+Daily & Weekly Operations,Weekly — Weekly Others,Weekly Others,1,,8,JSW Drive Sheet,Action,dharabhavsar,,,,,dharabhavsar@ambaltd.com,Weekly,
+Daily & Weekly Operations,Weekly — Weekly Others,Weekly Others,1,,9,Check Management report,Action,sarikabhise,,,,,sarikabhise@ambaltd.com,Weekly,
+Daily & Weekly Operations,Weekly — Weekly Others,Weekly Others,1,,10,Kapsosn Weekly report,Action,sarikabhise,,,,,sarikabhise@ambaltd.com,Weekly,
+Daily & Weekly Operations,Weekly — Weekly-Admin,Weekly-Admin,2,,1,Attendance update,Action,jagrutisutar,,,,,jagrutisutar@ambaltd.com,Weekly,
+Daily & Weekly Operations,Weekly — Weekly-Admin,Weekly-Admin,2,,2,Petty Cash Pune,Action,pranayshinde,,,,,pranayshinde@ambaltd.com,Weekly,
