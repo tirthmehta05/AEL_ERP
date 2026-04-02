@@ -128,7 +128,7 @@ def render_delivery_challan_tab(services: AppServices):
     # --- Filters ---
     col1, col2, col3 = st.columns(3)
     with col1:
-        party_names = get_sales_order_dropdown_data(services).party_names
+        party_names = get_sales_order_dropdown_data(services).active_party_names
         selected_party = st.selectbox("Select Party", options=[""] + party_names, key="dc_party")
     with col2:
         start_date = st.date_input("Start Date", datetime.now() - timedelta(days=30), key="dc_start_date")
@@ -340,7 +340,7 @@ def render_weight_receipt_tab(services: AppServices):
     # --- Filters ---
     col1, col2, col3 = st.columns(3)
     with col1:
-        party_names = get_sales_order_dropdown_data(services).party_names
+        party_names = get_sales_order_dropdown_data(services).active_party_names
         selected_party = st.selectbox("Select Party", options=[""] + party_names, key="wr_party")
     with col2:
         start_date = st.date_input("Start Date", datetime.now() - timedelta(days=30), key="wr_start_date")

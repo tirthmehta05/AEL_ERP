@@ -83,9 +83,25 @@ class SalesOrderService:
             if df.empty:
                 return SalesOrderDropdownData()
 
-            party_names = []
+            all_party_names = []
+            try:
+                # Based on debugging, the real headers start at row 2 for this sheet
+                customer_df = self.google_service.get_worksheet_data(self.spreadsheet_id, "Customer Collection Report", header_row=2)
+                if not customer_df.empty and "Customer Names" in customer_df.columns:
+                    all_party_names = sorted(customer_df["Customer Names"].dropna().unique().tolist())
+                    
+                # Fallback to Sales Order sheet if missing
+                if not all_party_names and "Party Name" in df.columns:
+                    logger.info("Falling back to 'Party Name' from Sales Order sheet")
+                    all_party_names = sorted(df["Party Name"].dropna().unique().tolist())
+            except Exception as e:
+                logger.error(f"Error fetching from Customer Collection Report: {e}")
+                if "Party Name" in df.columns:
+                    all_party_names = sorted(df["Party Name"].dropna().unique().tolist())
+            
+            active_party_names = []
             if "Party Name" in df.columns:
-                party_names = sorted(df["Party Name"].dropna().unique().tolist())
+                active_party_names = sorted(df["Party Name"].dropna().unique().tolist())
             
             hole_sizes = []
             if "Hole Size" in df.columns:
@@ -96,7 +112,13 @@ class SalesOrderService:
             if "Coating" in df.columns:
                 coatings = sorted(df["Coating"].dropna().unique().tolist())
 
-            return SalesOrderDropdownData(party_names=party_names, hole_sizes=hole_sizes, coatings=coatings)
+            return SalesOrderDropdownData(
+                party_names=all_party_names,
+                all_party_names=all_party_names,
+                active_party_names=active_party_names,
+                hole_sizes=hole_sizes,
+                coatings=coatings
+            )
         except Exception as e:
             logger.error(f"Error getting dropdown data for Sales Order: {str(e)}")
             return SalesOrderDropdownData()

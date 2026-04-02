@@ -293,7 +293,7 @@ def render_weight_receipt_form():
     initialize_wr_session_state() # Call the new initialization function
 
     dropdown_data = load_so_dropdowns(services.sales_order)
-    party_names = dropdown_data.party_names
+    party_names = dropdown_data.active_party_names
 
     # --- Filters ---
     col1, col2, col3, col_refresh = st.columns([2, 2, 2, 1])

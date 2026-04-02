@@ -63,6 +63,8 @@ class SalesOrderRequest(BaseModel):
 class SalesOrderDropdownData(BaseModel):
     """Model for dropdown data for the Sales Order form."""
     party_names: List[str] = []
+    all_party_names: List[str] = []
+    active_party_names: List[str] = []
     hole_sizes: List[int] = []
     coatings: List[str] = []
 
