@@ -236,6 +236,49 @@ class WeightReceiptService:
             logger.error(f"Error calculating cumulative weight for JC {job_card_number}: {e}")
             return 0.0
     
+    def get_material_type_for_job_card(self, job_card_number: str) -> str:
+        """
+        Looks up the material type for a job card from the flat 'Sales Order' sheet.
+        The Sales Order-JC sheet does not store material type, so we read it from
+        the per-design rows in 'Sales Order' where it lives in the 'type' column.
+        Returns an empty string if no match is found.
+        """
+        try:
+            df = self.google_service.get_worksheet_data(self.spreadsheet_id, "Sales Order", header_row=1)
+            if df is None or df.empty:
+                return ""
+
+            # Identify the job card column (varies in casing/naming across writes)
+            jc_col = None
+            for candidate in ("Job Card", "job_card_number", "Job Card No", "job_card", "JobCard"):
+                if candidate in df.columns:
+                    jc_col = candidate
+                    break
+            if jc_col is None:
+                logger.warning("get_material_type_for_job_card: no recognizable Job Card column in 'Sales Order' sheet.")
+                return ""
+
+            # Identify the material/type column
+            type_col = None
+            for candidate in ("type", "Type", "material_type", "Material Type", "Material"):
+                if candidate in df.columns:
+                    type_col = candidate
+                    break
+            if type_col is None:
+                logger.warning("get_material_type_for_job_card: no recognizable type/material column in 'Sales Order' sheet.")
+                return ""
+
+            df[jc_col] = df[jc_col].astype(str).str.strip().str.lower()
+            jc_rows = df[df[jc_col] == job_card_number.strip().lower()]
+            if jc_rows.empty:
+                return ""
+
+            value = jc_rows.iloc[0].get(type_col)
+            return "" if pd.isna(value) else str(value).strip()
+        except Exception as e:
+            logger.error(f"Error in get_material_type_for_job_card for JC {job_card_number}: {e}")
+            return ""
+
     def get_order_type_for_job_card(self, job_card_number: str) -> str:
         """
         Retrieves the order type for a given job card from the Sales Order-JC sheet.
@@ -317,27 +360,31 @@ class WeightReceiptService:
             logger.error(f"Error in save_weight_receipt_draft for JC {job_card}: {e}")
             return False
 
-    def get_weight_receipt_drafts(self, job_card: str) -> tuple[dict, int | None, float | None, str | None]:
+    def get_weight_receipt_drafts(self, job_card: str) -> tuple[dict, int | None, float | None, str | None, dict]:
         """
         Retrieves the latest draft data for a given job card.
         Returns a tuple: (
             dictionary mapping design_index to its data (including design_deduction),
             the number of sets for the draft session,
-            the total weight if a 'Building Core' draft exists,
-            the remark if a 'Building Core' draft exists
+            the total weight from the latest 'Building Core' draft (legacy/back-compat),
+            the remark from the latest 'Building Core' draft (legacy/back-compat),
+            dictionary mapping core slot number (1-indexed) to its draft data
         ).
+
+        Core building drafts are stored with negative DesignIndex where
+        index = -core_slot_number, so multiple cores can have independent drafts.
         """
         try:
             sheet_name = "Weight Receipt Draft"
             df = self.google_service.get_worksheet_data(self.spreadsheet_id, sheet_name)
             if df is None or df.empty or 'JobCardNumber' not in df.columns:
-                return {}, None, None, None
+                return {}, None, None, None, {}
 
             # Filter for the job card and ensure correct types
             drafts_df = df[df['JobCardNumber'] == job_card].copy()
             if drafts_df.empty:
-                return {}, None, None, None
-            
+                return {}, None, None, None, {}
+
             drafts_df['Timestamp'] = pd.to_datetime(drafts_df['Timestamp'], errors='coerce')
             drafts_df['DesignIndex'] = pd.to_numeric(drafts_df['DesignIndex'], errors='coerce')
             drafts_df.dropna(subset=['Timestamp', 'DesignIndex'], inplace=True)
@@ -347,14 +394,25 @@ class WeightReceiptService:
             latest_entry = drafts_df.sort_values('Timestamp', ascending=False).iloc[0]
             draft_sets_value = int(pd.to_numeric(latest_entry.get('ReceiptSets'), errors='coerce'))
 
-            # Separate Building Core drafts (index -1) from Loose Strips drafts
-            core_drafts = drafts_df[drafts_df['DesignIndex'] == -1]
+            # Separate Building Core drafts (negative index) from Loose Strips drafts
+            core_drafts = drafts_df[drafts_df['DesignIndex'] < 0]
             loose_strip_drafts = drafts_df[drafts_df['DesignIndex'] >= 0]
 
-            # Get the latest total weight and remark if a core draft exists
+            # Build per-core dict keyed by core slot number (1-indexed)
+            core_drafts_dict = {}
             draft_total_weight = None
             draft_core_remark = None
             if not core_drafts.empty:
+                latest_per_core = core_drafts.sort_values('Timestamp', ascending=False).drop_duplicates(subset=['DesignIndex'], keep='first')
+                for _, row in latest_per_core.iterrows():
+                    core_no = int(-row['DesignIndex'])
+                    remark = str(row.get('Remark', '')) if pd.notna(row.get('Remark')) else ''
+                    core_drafts_dict[core_no] = {
+                        'weight': float(pd.to_numeric(row['ActualWeight'], errors='coerce') or 0.0),
+                        'remark': remark,
+                        'sets': int(row.get('ReceiptSets', 1))
+                    }
+                # Legacy fields: latest core draft overall
                 latest_core_draft = core_drafts.sort_values('Timestamp', ascending=False).iloc[0]
                 draft_total_weight = pd.to_numeric(latest_core_draft['ActualWeight'], errors='coerce')
                 draft_core_remark = str(latest_core_draft.get('Remark', '')) if pd.notna(latest_core_draft.get('Remark')) else ''
@@ -370,17 +428,17 @@ class WeightReceiptService:
                 # Get design_deduction, default to 0.0 if column doesn't exist or value is missing
                 design_deduction = pd.to_numeric(row.get('DesignDeduction', 0.0), errors='coerce')
                 design_deduction = design_deduction if pd.notna(design_deduction) else 0.0
-                
+
                 result[row['DesignIndex']] = {
                     'weight': pd.to_numeric(row['ActualWeight'], errors='coerce'),
                     'remark': remark,
                     'design_deduction': design_deduction,
                     'sets': int(row.get('ReceiptSets', 1))
                 }
-            return result, draft_sets_value, draft_total_weight, draft_core_remark
+            return result, draft_sets_value, draft_total_weight, draft_core_remark, core_drafts_dict
         except Exception as e:
             logger.error(f"Error in get_weight_receipt_drafts for JC {job_card}: {e}")
-            return {}, None, None, None
+            return {}, None, None, None, {}
 
     def clear_weight_receipt_drafts(self, job_card: str) -> bool:
         """Removes all draft entries for a given job card from the draft sheet."""

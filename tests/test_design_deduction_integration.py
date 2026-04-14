@@ -66,7 +66,7 @@ def test_draft_save_and_load():
     # Test 3: Load drafts and verify design_deduction values
     print("\n=== Test 3: Load Drafts and Verify ===")
     try:
-        drafts, sets, total_weight, core_remark = services.weight_receipt.get_weight_receipt_drafts(test_job_card)
+        drafts, sets, total_weight, core_remark, core_drafts = services.weight_receipt.get_weight_receipt_drafts(test_job_card)
         
         print(f"✓ Loaded {len(drafts)} draft(s)")
         
@@ -122,7 +122,7 @@ def test_draft_save_and_load():
             return False
         
         # Verify drafts are cleared
-        drafts, _, _, _ = services.weight_receipt.get_weight_receipt_drafts(test_job_card)
+        drafts, _, _, _, _ = services.weight_receipt.get_weight_receipt_drafts(test_job_card)
         if len(drafts) == 0:
             print("✓ Verified drafts are cleared")
         else:
