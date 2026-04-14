@@ -45,12 +45,6 @@ def initialize_wr_session_state():
         st.session_state.wr_is_manual_entry = False
     if 'wr_pending_save' not in st.session_state:
         st.session_state.wr_pending_save = None
-    if 'wr_core_drafts_data' not in st.session_state:
-        st.session_state.wr_core_drafts_data = {}
-    if 'wr_current_core_no' not in st.session_state:
-        st.session_state.wr_current_core_no = None
-    if 'wr_selected_core_slots' not in st.session_state:
-        st.session_state.wr_selected_core_slots = []
 
 def _is_manual_entry_authorized():
     """Check if the current user is authorized for manual weight entry."""
@@ -341,13 +335,10 @@ def render_weight_receipt_form():
             
             # --- Load Drafts and Initialize State (runs only on JC change) ---
             if st.session_state.get('current_jc_for_wr') != selected_jc_str:
-                drafts, draft_sets, draft_total_weight, draft_core_remark, core_drafts_dict = services.weight_receipt.get_weight_receipt_drafts(selected_jc_str)
+                drafts, draft_sets, draft_total_weight, draft_core_remark = services.weight_receipt.get_weight_receipt_drafts(selected_jc_str)
                 st.session_state.wr_draft_data = drafts or {}
-                st.session_state.wr_core_drafts_data = core_drafts_dict or {}
                 # Look up material type from the flat Sales Order sheet — Sales Order-JC doesn't carry it.
                 st.session_state.wr_material_type = services.weight_receipt.get_material_type_for_job_card(selected_jc_str)
-                st.session_state.wr_current_core_no = None
-                st.session_state.wr_selected_core_slots = []
                 
                 # When JC changes, reset the session state for weights, remarks, deductions, and selection
                 st.session_state.wr_weights = {}
@@ -435,70 +426,41 @@ def render_weight_receipt_form():
                     st.warning("All sets for this Job Card have already been receipted.", icon="⚠️")
                     st.stop()
 
-                # --- Core slot multiselect ---
-                # User picks which physical core slots this single weight receipt will cover.
-                # Each in-progress draft is keyed by its starting slot; selecting the same
-                # starting slot prefills the in-progress weight/remark (resume draft).
-                core_drafts_data = st.session_state.get('wr_core_drafts_data', {})
-                receipted_slots = set(range(1, completed_sets + 1))
-                available_slots = [s for s in range(1, total_sets_in_jc + 1) if s not in receipted_slots]
-
-                def _slot_label(s: int) -> str:
-                    if s in core_drafts_data:
-                        d = core_drafts_data[s]
-                        wt = float(d.get('weight') or 0.0)
-                        n = int(d.get('sets') or 1)
-                        span = f"+{n-1}" if n > 1 else ""
-                        return f"Core #{s}{span} (draft: {wt:.2f} kg)"
-                    return f"Core #{s}"
-
-                # Default selection: resume the first existing draft, else first available slot
-                if 'wr_selected_core_slots' not in st.session_state or not st.session_state.wr_selected_core_slots:
-                    drafted = sorted([s for s in core_drafts_data if s in available_slots])
-                    if drafted:
-                        first = drafted[0]
-                        n = int(core_drafts_data[first].get('sets') or 1)
-                        st.session_state.wr_selected_core_slots = [first + k for k in range(n) if (first + k) in available_slots]
-                    else:
-                        st.session_state.wr_selected_core_slots = [available_slots[0]]
-
-                option_to_slot = {_slot_label(s): s for s in available_slots}
-                slot_to_option = {s: lbl for lbl, s in option_to_slot.items()}
-                default_options = [slot_to_option[s] for s in st.session_state.wr_selected_core_slots if s in slot_to_option]
-
-                selected_options = st.multiselect(
-                    "Cores to Weigh in This Receipt",
-                    options=list(option_to_slot.keys()),
-                    default=default_options,
-                    help="Select one or more physical core slots. Pick a single slot to weigh one core at a time, or several to weigh them together on the scale. Slots labelled '(draft …)' have an in-progress draft you can resume by re-selecting them."
-                )
-                selected_slots = sorted(option_to_slot[opt] for opt in selected_options)
-
-                if not selected_slots:
-                    st.info("Select at least one core slot to weigh.", icon="ℹ️")
-                    st.stop()
-
-                sets_for_this_receipt = len(selected_slots)
-                current_core_no = selected_slots[0]
-
-                # If selection changed, prefill weight/remark from a matching draft (if any) and rerun
-                if st.session_state.wr_selected_core_slots != selected_slots:
-                    st.session_state.wr_selected_core_slots = selected_slots
-                    matching_draft = core_drafts_data.get(current_core_no)
-                    if matching_draft is not None and int(matching_draft.get('sets') or 1) == sets_for_this_receipt:
-                        st.session_state.wr_total_weight = float(matching_draft.get('weight') or 0.0)
-                        st.session_state.wr_core_remark = matching_draft.get('remark', '') or ''
-                    else:
+                # --- Number of sets for this receipt ---
+                sets_for_this_receipt_val = st.session_state.get('wr_sets_for_receipt', min(1, remaining_sets))
+                if sets_for_this_receipt_val > remaining_sets:
+                    st.warning(f"Draft has {sets_for_this_receipt_val} sets, but only {remaining_sets} remain. Please adjust or clear draft.", icon="⚠️")
+                    if st.button("Reset Sets and Clear Draft"):
+                        st.session_state.wr_sets_for_receipt = remaining_sets
+                        st.session_state.wr_weights = {}
+                        st.session_state.wr_remarks = {}
                         st.session_state.wr_total_weight = 0.0
-                        st.session_state.wr_core_remark = ''
-                    st.rerun()
+                        st.session_state.wr_draft_data = {}
+                        st.session_state.last_selected_index = None
+                        services.weight_receipt.clear_weight_receipt_drafts(selected_jc_str)
+                        st.toast("Sets reset and draft cleared.", icon="🗑️")
+                        st.rerun()
+                    sets_for_this_receipt_val = remaining_sets
+
+                sets_for_this_receipt = st.number_input(
+                    "Number of Cores for this Receipt",
+                    min_value=1,
+                    max_value=remaining_sets,
+                    value=sets_for_this_receipt_val,
+                    step=1,
+                    key='wr_sets_for_receipt_input'
+                )
+
+                if 'wr_sets_for_receipt' in st.session_state and st.session_state.wr_sets_for_receipt != sets_for_this_receipt:
+                    st.session_state.wr_weights = {}
+                    st.session_state.wr_remarks = {}
+                    st.session_state.wr_total_weight = 0.0
+                    st.session_state.wr_draft_data = {}
+                    st.session_state.last_selected_index = None
+                    services.weight_receipt.clear_weight_receipt_drafts(selected_jc_str)
+                    st.toast("Number of sets changed. Previous draft cleared.", icon="🗑️")
 
                 st.session_state.wr_sets_for_receipt = sets_for_this_receipt
-                st.session_state.wr_current_core_no = current_core_no
-                st.caption(
-                    f"This receipt will cover {sets_for_this_receipt} core(s): "
-                    + ", ".join(f"#{s}" for s in selected_slots)
-                )
             
             else:
                 # Weight-based logic for loose strips and EI ready orders
@@ -920,14 +882,7 @@ def render_weight_receipt_form():
 
             elif weight_entry_type == "Building Core":
                 _render_designs_grid(designs, drafts, is_itemized_mode=False, editable=False)
-
-                selected_slots = st.session_state.get('wr_selected_core_slots', []) or []
-                slot_label = (
-                    f"Core #{selected_slots[0]}"
-                    if len(selected_slots) == 1
-                    else f"Cores {', '.join('#' + str(s) for s in selected_slots)}"
-                ) if selected_slots else "Selected Cores"
-                st.markdown(f"<h6>Enter Total Actual Weight & Remark for {slot_label}:</h6>", unsafe_allow_html=True)
+                st.markdown("<h6>Enter Total Actual Weight & Remark:</h6>", unsafe_allow_html=True)
 
                 # --- UI for Weight and Remark Inputs ---
                 core_input_col1, core_input_col2 = st.columns(2)
@@ -948,7 +903,13 @@ def render_weight_receipt_form():
                 with core_button_col2:
                     add_weight_clicked_core = st.button("Add Weight", key="add_total_weight_core", use_container_width=True)
                 with core_button_col3:
-                    save_draft_clicked_core = st.button("Save Draft", key="save_total_weight_core", use_container_width=True)
+                    save_draft_clicked_core = st.button(
+                        "Save Draft",
+                        key="save_total_weight_core",
+                        use_container_width=True,
+                        disabled=True,
+                        help="Drafts are disabled for Building Core receipts."
+                    )
 
 
                 if get_weight_clicked_core or add_weight_clicked_core:
@@ -1004,15 +965,14 @@ def render_weight_receipt_form():
 
                 if save_draft_clicked_core:
                     with st.spinner("Saving draft..."):
-                        current_core_no = int(st.session_state.get('wr_current_core_no') or 1)
                         services.weight_receipt.save_weight_receipt_draft(
                             job_card=selected_jc_str,
-                            design_index=-current_core_no,
+                            design_index=-1,
                             weight=st.session_state.wr_total_weight,
                             remark=st.session_state.get('wr_core_remark', ''),
                             sets_for_this_receipt=st.session_state.get('wr_sets_for_receipt', 0)
                         )
-                        st.toast(f"Draft saved for Core #{current_core_no}!", icon="📝")
+                        st.toast("Draft saved!", icon="📝")
                         st.rerun()
                 st.markdown("---")
                 if st.button("Save Weight Receipt", key="save_wr_button_core"):
@@ -1089,22 +1049,11 @@ def render_weight_receipt_form():
                                     f"Skipped Finished Goods entry ({st.session_state.get('wr_material_type', 'N/A')} is excluded).",
                                     icon="ℹ️"
                                 )
-                            # Clear only the draft for the core slot(s) covered by this receipt,
-                            # so other in-progress core drafts for this JC are preserved.
-                            cleared_slots = list(st.session_state.get('wr_selected_core_slots') or [])
-                            if not cleared_slots:
-                                cleared_slots = [int(st.session_state.get('wr_current_core_no') or 1)]
-                            slot_indices = [-s for s in cleared_slots]
-                            services.weight_receipt.clear_drafts_for_design_indices(
-                                selected_jc['job_card_number'], slot_indices
-                            )
+                            services.weight_receipt.clear_weight_receipt_drafts(selected_jc['job_card_number'])
                             st.session_state.wr_weights = {}
                             st.session_state.wr_remarks = {}
                             st.session_state.wr_total_weight = 0.0
                             st.session_state.wr_draft_data = {}
-                            st.session_state.wr_core_drafts_data = {}
-                            st.session_state.wr_current_core_no = None
-                            st.session_state.wr_selected_core_slots = []
                             st.session_state.last_selected_index = None
                             st.session_state.wr_is_manual_entry = False
 
