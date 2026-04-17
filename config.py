@@ -62,3 +62,9 @@ def load_settings() -> Settings:
     )
 
 settings = load_settings()
+# Google Sheets Constants (Delivery Challan Feature)
+DELIVERY_CHALLAN_SHEET = "Delivery Challan"
+CONSIGNEE_MASTER_SHEET = "Consignee Master"
+FINANCIAL_YEAR = "25-26"  # update every April 1
+RM_INWARD_ISSUE_SHEET = "RM inward_Issue format"
+RM_USED_SHEET = "RM Used"

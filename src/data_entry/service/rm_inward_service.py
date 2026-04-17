@@ -12,6 +12,8 @@ import json
 import gspread
 import logging
 from datetime import datetime
+from src.data_entry.service.rm_used_service import RMUsedService
+from src.data_entry.models.rm_used_models import RMUsedRequest
 
 # Configure logger
 logger = setup_logger(__name__)
@@ -31,7 +33,7 @@ class RMInwardService:
         if self._dropdown_df is None:
             try:
                 self._dropdown_df = self.google_service.get_worksheet_data(
-                    self.spreadsheet_id, "RM inward_Issue format", header_row=3
+                    self.spreadsheet_id, config.RM_INWARD_SHEET, header_row=3
                 )
             except Exception as e:
                 logger.error(f"Error loading dropdown data: {str(e)}")
@@ -125,8 +127,20 @@ class RMInwardService:
                 data_rows.append(record.to_list())
 
             success = self.google_service.insert_row_before_last(
-                self.spreadsheet_id, "RM inward_Issue format", data_rows
+                self.spreadsheet_id, config.RM_INWARD_SHEET, data_rows
             )
+
+            if success:
+                for request in requests:
+                    logger.info(f"DEBUG: coil={request.coil_number}, is_stock_transfer={request.is_stock_transfer}")  # ✅ ADD THIS
+                    if request.is_stock_transfer:
+                        logger.info(f"DEBUG: Triggering RM Used for {request.coil_number}")  # ✅ ADD THIS
+                        try:
+                            self._create_stock_transfer_rm_used(request)
+                        except Exception as e:
+                            logger.error(
+                                f"Stock transfer RM Used creation failed for coil {request.coil_number}: {str(e)}"
+                            )
 
             if success:
                 logger.info(
@@ -148,7 +162,7 @@ class RMInwardService:
                 return []
 
             df = self.google_service.get_worksheet_data(
-                self.spreadsheet_id, "RM inward_Issue format", header_row=3
+                self.spreadsheet_id, config.RM_INWARD_SHEET, header_row=3
             )
 
             if df.empty:
@@ -172,7 +186,7 @@ class RMInwardService:
 
             try:
                 headers = self.google_service.get_worksheet_headers(
-                    self.spreadsheet_id, "RM inward_Issue format"
+                    self.spreadsheet_id, config.RM_INWARD_SHEET
                 )
 
                 if not headers:
@@ -426,3 +440,29 @@ class RMInwardService:
                     }
                 )
         return valid_requests, failed_records
+    
+    def _create_stock_transfer_rm_used(self, request: RMInwardIssueRequest):
+        """Creates an RM Used entry for stock transfer"""
+        try:
+            rm_used_service = RMUsedService()
+
+            rm_used_request = RMUsedRequest(
+                rm_used_date=request.transfer_date or request.rm_receipt_date,
+                card_no=f"ST-{request.coil_number}",
+            coil_no=request.coil_number,
+            weight=request.coil_weight,
+            machine="TAIIN Transfer",
+            remarks="Stock Transfer - Returned without slitting",
+            no_of_boxes=0,
+            )
+
+            success = rm_used_service.create_rm_used(rm_used_request)
+
+            print(f"DEBUG: RM Used success = {success}")
+
+            if not success:
+                raise Exception("RM Used creation failed")
+
+        except Exception as e:
+            print(f"DEBUG ERROR: {e}")
+            raise

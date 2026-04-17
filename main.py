@@ -11,6 +11,7 @@ DEV_MODE = settings.app.dev_mode
 # --- Page Configuration ---
 st.set_page_config(
     page_title="AEL ERP",
+    
     page_icon="assets/logofinal.png",
     layout="wide",
     initial_sidebar_state="expanded"

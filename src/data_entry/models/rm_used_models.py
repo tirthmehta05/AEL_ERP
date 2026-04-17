@@ -30,6 +30,10 @@ class RMUsedRecord(BaseModel):
             self.machine,
             self.remarks,
             self.no_of_boxes,
+            "",
+            "",
+            "",
+            "",
         ]
 
 class DropdownData(BaseModel):

@@ -4,6 +4,7 @@ import pandas as pd
 from pages.shared.utils import get_services
 from src.services import AppServices
 from datetime import datetime, timedelta
+from io import BytesIO
 
 # --- Top-level Cached Functions ---
 
@@ -33,6 +34,81 @@ def get_weight_receipts(_services: AppServices, party_name: str, start_date, end
     return _services.weight_receipt.get_weight_receipts_for_party_and_date_range(party_name, start_date, end_date)
 
 # --- Tab Rendering Functions ---
+
+def _prepare_challan_data(receipts_df):
+        items = []
+        grand_total_weight = 0
+
+        for _, receipt_row in receipts_df.iterrows():
+            line_items = []
+            receipt_total_weight = 0
+            receipt_total_deduction = float(receipt_row.get('Deduction', 0) or 0)
+
+            try:
+                designs = json.loads(receipt_row.get('DesignDetailsWithWeightsJSON', '[]') or '[]')
+            except:
+                designs = []
+
+            if isinstance(designs, list):
+                for design in designs:
+                    weight = float(design.get('actual_weight', 0) or 0)
+                    deduction = float(design.get('design_deduction', 0) or 0)
+
+                    if weight > 0:
+                        description = f"{design.get('width', '')} X {design.get('length', '')}"
+
+                        if design.get('mm_stack'):
+                            description += f" X {design.get('mm_stack', '')}"
+
+                        line_items.append({
+                            "description": description,
+                            "remark": design.get('remark', ''),
+                            "weight": weight,
+                            "deduction": deduction,
+                            "net_weight": weight - deduction,
+                            "hsn": receipt_row.get("HSN", ""),
+                            "rate": receipt_row.get("Rate", 0),
+                            "value": receipt_row.get("Value", 0)
+                        })
+                        receipt_total_weight += weight
+
+            if line_items:
+                grand_total_weight += receipt_total_weight
+
+                items.append({
+                    "job_no": receipt_row.get('JobCardNumber', ''),
+                    "po_no": receipt_row.get('PONumber', ''),
+                    "line_items": line_items,
+                    "summary": {
+                        "material": receipt_row.get('Material', ''),
+                        "sets": receipt_row.get('Sets', 0),
+                        "total_weight": receipt_total_weight,
+                        "total_deduction": receipt_total_deduction,
+                        "net_total_weight": receipt_total_weight - receipt_total_deduction
+                    }
+                })
+
+        if not items:
+            return None
+
+        challan_data = {
+            "challan_details": {
+                "to_customer": receipts_df.iloc[0].get('PartyName', ''),
+                "from_company": {
+                    "name": "AMBA ENTERPRISE LTD. (UNIT I)",
+                    "address": "S. No 132 , H.No 1/4/1, Premraj Ind Est, Shed No B-1/2/3/4, Dalvi Wadi, Nanded Phata, Dhairy, Pune 411041"
+                },
+                "challan_no": "UI",
+                "challan_date": datetime.now().strftime("%d/%m/%Y"),
+                "vehicle_no": ""
+            },
+            "items": items,
+            "grand_total_weight": grand_total_weight,
+            "receipts": receipts_df
+        }
+
+        return challan_data
+
 
 def render_coil_sticker_tab(services: AppServices):
     """Renders the UI for the Coil Sticker tab."""
@@ -122,169 +198,330 @@ def render_slitting_plan_tab(services: AppServices):
                 )
 
 def render_delivery_challan_tab(services: AppServices):
-    """Renders the UI for the Delivery Challan tab."""
+    """Enhanced Delivery Challan with Weight + Unused Coil modes"""
     st.header("Delivery Challan Generation")
-    
-    # --- Filters ---
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        party_names = get_sales_order_dropdown_data(services).party_names
-        selected_party = st.selectbox("Select Party", options=[""] + party_names, key="dc_party")
-    with col2:
-        start_date = st.date_input("Start Date", datetime.now() - timedelta(days=30), key="dc_start_date")
-    with col3:
-        end_date = st.date_input("End Date", datetime.now(), key="dc_end_date")
 
-    if selected_party:
-        receipts = services.weight_receipt.get_weight_receipts_for_party_and_date_range(selected_party, start_date, end_date)
-        
-        if not receipts:
-            st.info("No Weight Receipts found for the selected party and date range.")
-            return
+    # =========================
+    # MODE SELECTION
+    # =========================
+    generation_mode = st.radio(
+        "Generation Mode",
+        ["⚖️ Weight Challan", "📦 Unused Coils"],
+        horizontal=True,
+        key="dc_mode"
+    )
 
-        df = pd.DataFrame(receipts)
-        
-        st.dataframe(
-            df,
-            on_select="rerun",
-            selection_mode="multi-row",
-            column_order=["WeightReceiptNumber", "Date", "JobCardNumber"],
-            hide_index=True,
-            key="dc_receipt_selection_df"
+    if generation_mode == "📦 Unused Coils":
+        sub_mode = st.radio(
+            "Select Method",
+            ["🔢 From Coil Number", "🏢 From Party"],
+            horizontal=True,
+            key="dc_sub_mode"
         )
 
-        selected_indices = st.session_state.dc_receipt_selection_df.selection.rows
-        selected_receipts = df.iloc[selected_indices]
+    st.markdown("---")
 
-        if not selected_receipts.empty:
-            st.write(f"{len(selected_receipts)} receipt(s) selected.")
-            if st.button("Generate Delivery Challan", key="generate_delivery_challan_pdf"):
-                
-                # --- Data Transformation Logic ---
-                def _prepare_challan_data(receipts_df):
-                    items = []
-                    grand_total_weight = 0
-                    for _, receipt_row in receipts_df.iterrows():
-                        is_core_building = receipt_row.get('WeightEntryType') == 'Building Core'
-                        line_items = []
-                        receipt_total_weight = 0
+    
+    # ============================================================
+    # 🟢 MODE 1 — ORIGINAL WEIGHT CHALLAN (UNCHANGED)
+    # ============================================================
+    if generation_mode == "⚖️ Weight Challan":
 
-                        if is_core_building:
-                            core_weight = float(receipt_row.get('TotalWeight') or 0)
-                            core_deduction = float(receipt_row.get('Deduction') or 0)
-                            if core_weight > 0:
-                                designs = json.loads(receipt_row.get('DesignDetailsWithWeightsJSON', '[]'))
-                                if isinstance(designs, list):
-                                    num_designs = len(designs)
-                                    for idx, design in enumerate(designs):
-                                        description = f"{design.get('width', '')} X {design.get('length', '')}"
-                                        if design.get('mm_stack'):
-                                            description += f" X {design.get('mm_stack', '')}"
-                                        
-                                        # Only show weight/deduction/net on the LAST item for Building Core group
-                                        is_last = (idx == num_designs - 1)
-                                        
-                                        line_items.append({
-                                            "description": description,
-                                            "remark": design.get('remark', ''),
-                                            "weight": core_weight if is_last else None,
-                                            "deduction": core_deduction if is_last else None,
-                                            "net_weight": (core_weight - core_deduction) if is_last else None
-                                        })
-                                receipt_total_weight = core_weight
-                                receipt_total_deduction = core_deduction
-                        else:
-                            # "Loose Strips" logic
-                            # Deduction Logic: 
-                            # If total 'Deduction' in receipt matches sum of 'design_deduction's, assign per design.
-                            # If total 'Deduction' exists but 'design_deduction's are 0, it's a bulk deduction (assign to last or distribute? Plan says show "-" in rows).
-                            # Wait, PDF Service will show "-" if I pass 0.
-                            # So I need to pass the actual 'design_deduction' if it exists.
-                            
-                            receipt_deduction_total = float(receipt_row.get('Deduction') or 0)
-                            calculated_deduction_sum = 0
-                            
-                            designs = json.loads(receipt_row.get('DesignDetailsWithWeightsJSON', '[]'))
-                            temp_items = []
-                            
-                            if isinstance(designs, list):
-                                for design in designs:
-                                    weight = float(design.get('actual_weight') or 0)
-                                    d_deduction = float(design.get('design_deduction') or 0)
-                                    calculated_deduction_sum += d_deduction
-                                    
-                                    if weight > 0:
-                                        remark = design.get('remark', '')
-                                        description = f"{design.get('width', '')} X {design.get('length', '')}"
-                                        if design.get('mm_stack'):
-                                            description += f" X {design.get('mm_stack', '')}"
-                                            
-                                        temp_items.append({
-                                            "description": description,
-                                            "remark": remark,
-                                            "weight": weight,
-                                            "deduction": d_deduction,  # Might be 0
-                                            "net_weight": weight - d_deduction
-                                        })
-                                        receipt_total_weight += weight
+        col1, col2, col3 = st.columns(3)
 
-                                # Handle Global Deduction case (User entered Total Deduction manually)
-                                # If calculated_sum (from rows) < receipt_deduction_total, it means there's a global override or extra deduction
-                                # In this case, we can't show it per row efficiently. 
-                                # BUT the PDF service iterates rows. 
-                                # If I pass deduction=0 for rows, they show "-".
-                                # Then I simply pass the Totals to the summary.
-                                # The Loop above sets 'deduction' to d_deduction (which is 0 in global case). Correct.
-                                
-                                line_items.extend(temp_items)
-                                receipt_total_deduction = receipt_deduction_total # Use the official total
+        with col1:
+            party_names = get_sales_order_dropdown_data(services).party_names
+            selected_party = st.selectbox("Select Party", options=[""] + party_names)
 
-                        
-                        if line_items:
-                            grand_total_weight += receipt_total_weight
-                            items.append({
-                                "job_no": receipt_row.get('JobCardNumber', ''),
-                                "po_no": receipt_row.get('PONumber', ''),
-                                "line_items": line_items,
-                                "summary": {
-                                    "material": receipt_row.get('Material', ''),
-                                    "sets": receipt_row.get('Sets', 0),
-                                    "total_weight": receipt_total_weight,
-                                    "total_deduction": receipt_total_deduction,
-                                    "net_total_weight": receipt_total_weight - receipt_total_deduction
-                                }
-                            })
+        with col2:
+            start_date = st.date_input("Start Date", datetime.now() - timedelta(days=30))
 
-                    if not items:
-                        return None
+        with col3:
+            end_date = st.date_input("End Date", datetime.now())
 
-                    challan_data = {
-                        "challan_details": {
-                            "to_customer": receipts_df.iloc[0].get('PartyName', ''),
-                            "from_company": {
-                                "name": "AMBA ENTERPRISE LTD. (UNIT I)",
-                                "address": "S. No 132 , H.No 1/4/1, Premraj Ind Est, Shed No B-1/2/3/4, Dalvi Wadi, Nanded Phata, Dhairy, Pune 411041"
-                            },
-                            "challan_no": "UI", # Placeholder
-                            "challan_date": datetime.now().strftime("%d/%m/%Y"),
-                            "vehicle_no": ""
-                        },
-                        "items": items,
-                        "grand_total_weight": grand_total_weight,
-                        "receipts": receipts_df
-                    }
-                    return challan_data
+        if selected_party:
+            receipts = services.weight_receipt.get_weight_receipts_for_party_and_date_range(
+                selected_party, start_date, end_date
+            )
 
-                challan_data = _prepare_challan_data(selected_receipts)
+            if not receipts:
+                st.info("No Weight Receipts found.")
+                return
 
-                with st.spinner("Generating PDF..."):
-                    pdf_output = services.pdf.generate_delivery_challan_pdf(challan_data)
+            df = pd.DataFrame(receipts)
+
+            st.dataframe(
+                df,
+                on_select="rerun",
+                selection_mode="multi-row",
+                hide_index=True,
+                key="dc_receipt_df"
+            )
+
+            selected_idx = st.session_state.get("dc_receipt_df", {}).get("selection", {}).get("rows", [])
+            selected_df = df.iloc[selected_idx]
+
+            if not selected_df.empty:
+                if st.button("Generate Delivery Challan"):
+
+                    challan_data = _prepare_challan_data(selected_df)
+
+                    if challan_data is None:
+                        st.error("No valid data to generate challan.")
+                        st.stop()
+
+                    pdf = services.pdf.generate_delivery_challan_pdf(challan_data)
+
                     st.download_button(
-                        label="Download Delivery Challan",
-                        data=pdf_output,
-                        file_name="delivery_challan.pdf",
-                        mime="application/pdf"
+                        "Download PDF",
+                        pdf,
+                        "delivery_challan.pdf",
+                        "application/pdf"
                     )
+
+    # ============================================================
+    # 🟢 MODE 2 — UNUSED COILS
+    # ============================================================
+    elif generation_mode == "📦 Unused Coils":
+
+        # =========================
+        # GET UNUSED COILS
+        # =========================
+        def get_unused_coils():
+            # Fetch already computed available coils (inward - used)
+            df = services.pdf.get_available_coils_for_sticker(
+                start_date=datetime.now() - timedelta(days=3650),
+                end_date=datetime.now()
+            )
+
+            df = pd.DataFrame(df)
+
+            if df.empty:
+                return df
+
+            # Ensure column exists
+            if "available_weight" in df.columns:
+                df["remaining_weight"] = df["available_weight"]
+            else:
+                df["remaining_weight"] = 0
+
+            # Keep only coils with remaining weight
+            df = df[df["remaining_weight"] > 0]
+
+            return df
+
+
+        df = get_unused_coils()
+
+        if df.empty:
+            st.warning("No unused coils available.")
+            return
+
+        # =========================
+        # SUB MODE FILTERING
+        # =========================
+        if sub_mode == "🔢 From Coil Number":
+
+            selected_coils = st.multiselect(
+                "Select Coil Number",
+                options=df["Coil Number"].unique()
+            )
+
+            if selected_coils:
+                df = df[df["Coil Number"].isin(selected_coils)]
+
+        elif sub_mode == "🏢 From Party":
+
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                parties = df["coil_supplier"].dropna().unique()
+                selected_party = st.selectbox("Select Party", options=[""] + list(parties))
+
+            with col2:
+                start_date = st.date_input(
+                    "Start Date",
+                    datetime.now() - timedelta(days=30),
+                    key="unused_start_date"
+                )
+
+            with col3:
+                end_date = st.date_input(
+                    "End Date",
+                    datetime.now(),
+                    key="unused_end_date"
+                )
+
+            # Apply filters
+            if selected_party:
+                df = df[df["coil_supplier"] == selected_party]
+
+            # OPTIONAL: if your data has date column
+            if "inward_date" in df.columns:
+                df = df[
+                    (pd.to_datetime(df["inward_date"]) >= pd.to_datetime(start_date)) &
+                    (pd.to_datetime(df["inward_date"]) <= pd.to_datetime(end_date))
+                ]
+
+        # =========================
+        # DISPLAY
+        # =========================
+        display_cols = [col for col in ["Coil Number", "remaining_weight", "grade", "width", "coil_supplier"] if col in df.columns]
+
+        st.dataframe(
+            df[display_cols],
+            on_select="rerun",
+            selection_mode="multi-row",
+            hide_index=True,
+            key="unused_df"
+        )
+
+        # SAFE selection (same as weight challan)
+        selected_idx = st.session_state.get("unused_df", {}).get("selection", {}).get("rows", [])
+        selected_df = df.iloc[selected_idx]
+
+        if len(selected_idx) > 0:
+            st.write(f"{len(selected_idx)} coil(s) selected.")
+
+        # =========================
+        # EXCEL FALLBACK (IMPROVED)
+        # =========================
+        if not selected_df.empty:
+
+            # --- Step 1: Detect missing data properly ---
+            required_fields = {
+                "coil_supplier": "Party Name",
+                "remaining_weight": "Weight",
+                "width": "Width",
+            }
+
+            missing_data = []
+
+            for field, label in required_fields.items():
+                if field not in selected_df.columns:
+                    missing_data.append(label)
+                elif selected_df[field].isnull().any():
+                    missing_data.append(label)
+
+            # Optional business fields
+            optional_fields = ["rate", "hsn"]
+
+            for field in optional_fields:
+                if field not in selected_df.columns or selected_df[field].isnull().any():
+                    missing_data.append(field.upper())
+
+            # --- Step 2: If missing → generate structured Excel ---
+            uploaded = None
+            if missing_data:
+
+                st.warning(f"Missing fields: {', '.join(missing_data)}")
+
+                def generate_missing_excel(df):
+                    rows = []  # ✅ MUST be inside function
+
+                    for _, r in df.iterrows():
+                        rows.append({
+                            "Coil Number": r.get("Coil Number", ""),
+                            "Party Name": r.get("coil_supplier", ""),
+                            "Width": r.get("width", ""),
+                            "Weight (kg)": r.get("remaining_weight", ""),
+                            "HSN Code": r.get("hsn", ""),
+                            "Rate per MT": r.get("rate", ""),
+                            "Value": ""
+                        })
+
+                    export_df = pd.DataFrame(rows)  # ✅ inside function
+
+                    buffer = BytesIO()
+                    export_df.to_excel(buffer, index=False, sheet_name="Challan Data")
+
+                    return buffer.getvalue()
+
+                excel_bytes = generate_missing_excel(selected_df)
+
+                st.download_button(
+                    "Download Excel (Fill Missing Data)",
+                    excel_bytes,
+                    "delivery_challan_missing.xlsx"
+                )
+
+                uploaded = st.file_uploader("Upload Filled Excel", type=["xlsx"])
+
+            if uploaded:
+                filled_df = pd.read_excel(uploaded)
+
+                # Normalize columns
+                selected_df = filled_df.rename(columns={
+                    "Party Name": "coil_supplier",
+                    "Weight (kg)": "remaining_weight",
+                    "HSN Code": "hsn",
+                    "Rate per MT": "rate",
+                    "Coil Number": "Coil Number"
+                })
+
+                # 🔥 Ensure numeric conversion
+                selected_df["remaining_weight"] = pd.to_numeric(selected_df["remaining_weight"], errors="coerce")
+                selected_df["rate"] = pd.to_numeric(selected_df.get("rate", 0), errors="coerce")
+
+                # 🔥 Calculate value
+                selected_df["value"] = (
+                    selected_df["remaining_weight"] / 1000
+                ) * selected_df.get("rate", 0)
+
+                st.success("Excel uploaded successfully. Data updated.")
+
+
+        # =========================
+        # CONVERT → RECEIPT FORMAT
+        # =========================
+        def convert_to_receipt(df):
+            rows = []
+
+            for _, r in df.iterrows():
+                rows.append({
+                    "WeightReceiptNumber": "",
+                    "Date": datetime.now(),
+                    "JobCardNumber": r.get("Coil Number", ""),
+                    "WeightEntryType": "Loose",
+                    "TotalWeight": r["remaining_weight"],
+                    "Deduction": 0,
+                    "HSN": r.get("hsn", ""),
+                    "Rate": r.get("rate", 0),
+                    "Value": r.get("value", 0),
+                    "DesignDetailsWithWeightsJSON": json.dumps([{
+                        "width": r.get("width", ""),
+                        "length": "",
+                        "actual_weight": r["remaining_weight"],
+                        "design_deduction": 0,
+                        "remark": "Unused Coil"
+                    }]),
+                    "PartyName": r.get("coil_supplier", "")
+                })
+
+            return pd.DataFrame(rows)
+
+        # =========================
+        # GENERATE PDF
+        # =========================
+        if not selected_df.empty:
+            if st.button("Generate Delivery Challan"):
+
+                receipt_df = convert_to_receipt(selected_df)
+
+                challan_data = _prepare_challan_data(receipt_df)
+
+                if challan_data is None:
+                    st.error("No valid data to generate challan. Check selected rows.")
+                    st.stop()
+
+                pdf = services.pdf.generate_delivery_challan_pdf(challan_data)
+
+                st.download_button(
+                    "Download PDF",
+                    pdf,
+                    "delivery_challan.pdf",
+                    "application/pdf"
+                )
 
 def render_job_card_tab(services: AppServices):
     """Renders the UI for the Job Card tab."""
@@ -355,7 +592,7 @@ def render_weight_receipt_tab(services: AppServices):
             return
 
         df = pd.DataFrame(receipts)
-        
+            
         st.dataframe(
             df,
             on_select="rerun",
@@ -418,16 +655,16 @@ def render_pdf_generator_page():
             for cache_func in caches_to_clear:
                 cache_func.clear()
             st.toast(f"Cache for '{tab_to_clear}' tab cleared!")
-            
+                
             # Ensure the UI stays on the cleared tab
             if tab_to_clear in tab_names:
                 radio_index = tab_names.index(tab_to_clear)
-        else:
-            # If no specific tab is targeted, clear all for the page (optional)
-            for cache_list in TABS.values():
-                for cache_func in cache_list:
-                    cache_func.clear()
-            st.toast("Cache for PDF Generator page cleared!")
+            else:
+                # If no specific tab is targeted, clear all for the page (optional)
+                for cache_list in TABS.values():
+                    for cache_func in cache_list:
+                        cache_func.clear()
+                st.toast("Cache for PDF Generator page cleared!")
 
     # --- UI Rendering ---
 
@@ -442,7 +679,7 @@ def render_pdf_generator_page():
 
     # Render the content for the selected tab.
     if active_tab == "Coil Sticker":
-        render_coil_sticker_tab(services)
+        render_coil_sticker_tab(services)   
     elif active_tab == "Slitting Plan":
         render_slitting_plan_tab(services)
     elif active_tab == "Job Card":

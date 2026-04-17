@@ -27,6 +27,13 @@ def _show_single_entry_confirmation_dialog(entries: list, data_service: RMInward
     display_df.columns = ['Coil Number', 'RM Type', 'Width (mm)', 'Thk (mm)', 'Weight (kg)', 'Supplier', 'Location']
     
     st.dataframe(display_df, use_container_width=True, hide_index=True)
+    #stock transfer
+    if "is_stock_transfer" in  df.columns and df["is_stock_transfer"].any():
+        stock_transfer_coils=df[df["is_stock_transfer"]==True]["coil_number"].tolist()
+        st.info(
+            "RM used entry will be also be created automatically for stock transfer coils:\n\n "
+            +"\n".join([f".st-{coil} (Machine : TAIIN transfer )" for coil in stock_transfer_coils])
+        )
     
     st.markdown("---")
     col1, col2 = st.columns(2)
@@ -157,9 +164,22 @@ def render_raw_material_inward_issue_form() -> None:
             st.selectbox("Coating", options=dropdowns.coatings, index=None, placeholder="Select or type a Coating", key="coating", accept_new_options=True)
             st.selectbox("Coil Supplier", options=dropdowns.suppliers, index=None, placeholder="Select or type a Supplier", key="supplier", accept_new_options=True)
             st.selectbox("Slit / Ready", options=["Ready", "Slit"], index=0, key="slit_ready")
-            st.number_input("Rate (per Kg)", min_value=0.0, step=0.01, format="%.2f", key="rate")
+            #stock transfer
+            # Stock Transfer
+            st.checkbox(
+                "Stock Transfer",
+                key="rm_is_stock_transfer"
+            )
 
-        st.selectbox("Coil Location", options=["AEL Pune", "TAIIN"], index=0, key="coil_location")
+            if st.session_state.get("rm_is_stock_transfer"):
+                st.date_input(
+                    "Date coil was originally sent to TAIIN",
+                    value=datetime.now().date(),
+                    max_value=datetime.now().date(),
+                    key="rm_transfer_date"
+                )
+            st.number_input("Rate (per Kg)", min_value=0.0, step=0.01, format="%.2f", key="rate")
+            st.selectbox("Coil Location", options=["AEL Pune", "TAIIN"], index=0, key="coil_location")
 
         if st.button("Add Coil to List"):
             validation_state = dict(st.session_state)
@@ -183,6 +203,9 @@ def render_raw_material_inward_issue_form() -> None:
                     "slit_ready": st.session_state.slit_ready,
                     "rate": st.session_state.rate,
                     "coil_location": st.session_state.coil_location,
+                    #stock transfer
+                    "is_stock_transfer": st.session_state.get("rm_is_stock_transfer", False),
+                    "transfer_date": st.session_state.get("rm_transfer_date", None),
                 }
                 st.session_state.rm_inward_entries.append(entry)
                 st.success("Coil added to the list.")
@@ -320,6 +343,11 @@ def render_raw_material_inward_issue_form() -> None:
             excel_cols = df.columns.tolist()
 
             st.markdown("##### Options")
+            st.checkbox(
+                "Stock Transfer",
+                key="bulk_is_stock_transfer",
+                value=False
+            )
             st.checkbox("Validate against Slitting Plan", key="validate_against_plan", value=False)
             
             if st.session_state.get("validate_against_plan"):
@@ -356,7 +384,7 @@ def render_raw_material_inward_issue_form() -> None:
                 "grade": "Grade", "thk": "Thk (mm)", "width": "Width (mm)", "coating": "Coating",
                 "coil_weight": "Coil Weight (kg)", "coil_supplier": "Coil Supplier",
                 "slit_ready": "Slit / Ready", "rate": "Rate",
-                "po_number": "PO Number (Optional)", "coil_location": "Coil Location"
+                "po_number": "PO Number (Optional)", "coil_location": "Coil Location" ,
             }
             if 'column_mapping' not in st.session_state:
                 st.session_state.column_mapping = {}
@@ -472,7 +500,11 @@ def render_raw_material_inward_issue_form() -> None:
                 options = {"user_email": user_email, "auto_generate_coil": auto_generate_coil, "group_by_col": group_by_col}
                 existing_coils = set(c.lower() for c in dropdowns.coil_numbers)
                 valid_requests, failed_records = data_service.process_bulk_upload_df(processing_df, mapping, options, existing_coils)
-                
+                # Apply stock transfer flag from frontend
+                if st.session_state.get("bulk_is_stock_transfer"):
+                    for req in valid_requests:
+                        req.is_stock_transfer = True
+
                 # Store processed records in session state for the dialog to use
                 st.session_state.pending_valid_requests = valid_requests
                 st.session_state.pending_failed_records = failed_records

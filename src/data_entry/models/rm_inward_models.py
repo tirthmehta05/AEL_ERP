@@ -22,7 +22,10 @@ class RMInwardIssueRequest(BaseModel):
     slit_ready: str = Field(default="Ready", description="Slit/Ready")
     rate: float = Field(default=0.0, ge=0, description="Rate")
     coil_location: str = Field(..., description="Coil Location")
-
+    is_stock_transfer: bool = False
+    transfer_date: Optional[date] = None
+    transfer_to: Optional[str] = None
+    
     @field_validator("coil_weight", "thk", "width")
     @classmethod
     def validate_positive_numbers(cls, v):
