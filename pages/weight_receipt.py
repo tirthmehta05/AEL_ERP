@@ -817,6 +817,14 @@ def render_weight_receipt_form():
                                 icon="⚠️"
                             )
 
+                    # Determine receipt-level sets: uniform value if all designs agree, else "Mixed"
+                    if is_itemized_mode and weighed_designs:
+                        design_sets_vals = [d.sets for d in weighed_designs if d.sets is not None]
+                        unique_sets = set(design_sets_vals)
+                        receipt_sets = design_sets_vals[0] if len(unique_sets) == 1 else "Mixed"
+                    else:
+                        receipt_sets = st.session_state.get('wr_sets_for_receipt', 0)
+
                     generated_wr_number = services.weight_receipt.generate_weight_receipt_number()
 
                     request = WeightReceiptRequest(
@@ -826,7 +834,7 @@ def render_weight_receipt_form():
                         party_name=selected_party,
                         po_no=selected_jc.get('po_no', 'N/A'),
                         material=selected_jc.get('material', 'N/A'),
-                        sets=st.session_state.get('wr_sets_for_receipt', 0),
+                        sets=receipt_sets,
                         designs=weighed_designs,
                         weight_entry_type="Loose Strips (Manual)" if st.session_state.get('wr_is_manual_entry') else "Loose Strips",
                         total_weight=actual_total_weight,
