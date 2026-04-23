@@ -20,7 +20,10 @@ class WeightReceiptService:
 
     def __init__(self):
         self.repository = WeightReceiptRepository()
-        self.weighing_scale_api_url = settings.api.weighing_scale_url
+        self._scale_urls = {
+            "standard": settings.api.weighing_scale_url,
+            "crane": settings.api.weighing_scale_crane_url,
+        }
         self.google_service = google_drive_service
         self.spreadsheet_id = settings.api.google_sheets_id
 
@@ -151,13 +154,15 @@ class WeightReceiptService:
             logger.error(f"Error fetching weight receipts for party {party_name}: {str(e)}")
             return []
 
-    def get_current_weight_from_scale(self) -> dict:
+    def get_current_weight_from_scale(self, scale_type: str = "standard") -> dict:
         """
         Fetches the current weight from the external weighing scale API.
+        `scale_type` selects which physical scale to read from ("standard" or "crane").
         Returns a dict with 'success', 'weight', and 'status'.
         """
-        if not self.weighing_scale_api_url:
-            logger.error("Weighing scale API URL is not configured.")
+        url = self._scale_urls.get(scale_type)
+        if not url:
+            logger.error(f"Weighing scale URL for '{scale_type}' is not configured.")
             return {"success": False, "weight": 0.0, "status": "unconfigured"}
 
         headers = {
@@ -165,7 +170,7 @@ class WeightReceiptService:
         }
 
         try:
-            response = requests.get(self.weighing_scale_api_url, headers=headers, timeout=10)
+            response = requests.get(url, headers=headers, timeout=10)
             response.raise_for_status() # Raise an HTTPError for bad responses (4xx or 5xx)
             data = response.json()
             return {
