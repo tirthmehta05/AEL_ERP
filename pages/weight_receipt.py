@@ -45,6 +45,8 @@ def initialize_wr_session_state():
         st.session_state.wr_is_manual_entry = False
     if 'wr_pending_save' not in st.session_state:
         st.session_state.wr_pending_save = None
+    if 'wr_scale_type' not in st.session_state:
+        st.session_state.wr_scale_type = "Standard"
 
 def _is_manual_entry_authorized():
     """Check if the current user is authorized for manual weight entry."""
@@ -347,6 +349,7 @@ def render_weight_receipt_form():
                 st.session_state.wr_design_deductions = {}
                 st.session_state.wr_selected_designs = set()
                 st.session_state.wr_is_manual_entry = False
+                st.session_state.wr_scale_type = "Standard"
 
                 # Crucial: Clear specific widget keys from session state to prevent StreamlitValueAboveMaxError
                 # and stale values in inputs. We clear up to a reasonable number of designs.
@@ -395,11 +398,19 @@ def render_weight_receipt_form():
             default_mode_index = 0 if order_type == "CORE_BUILDING" else 1
             
             selected_mode = st.radio(
-                "Weighing Mode", 
-                mode_options, 
-                index=default_mode_index, 
+                "Weighing Mode",
+                mode_options,
+                index=default_mode_index,
                 horizontal=True,
                 help="Choose 'Total Weight' to weigh the entire set at once, or 'Individual Items' to weigh specific designs."
+            )
+
+            st.radio(
+                "Weighing Scale",
+                ["Standard", "Crane"],
+                horizontal=True,
+                key="wr_scale_type",
+                help="Standard scale for regular weights; Crane scale for heavy cores."
             )
 
             is_itemized_mode = (selected_mode == "Individual Items")
@@ -581,7 +592,8 @@ def render_weight_receipt_form():
                     selected_indices = st.session_state.get('wr_selected_designs', set())
                     if len(selected_indices) > 0:
                         with st.spinner("Fetching weight..."):
-                            response_data = services.weight_receipt.get_current_weight_from_scale()
+                            scale_type = st.session_state.get("wr_scale_type", "Standard").lower()
+                            response_data = services.weight_receipt.get_current_weight_from_scale(scale_type=scale_type)
                             if response_data.get("success") and response_data.get("status") == "stable":
                                 total_scale_weight = response_data.get("weight", 0.0)
                                 st.session_state.wr_is_manual_entry = False
@@ -914,7 +926,8 @@ def render_weight_receipt_form():
 
                 if get_weight_clicked_core or add_weight_clicked_core:
                     with st.spinner("Fetching weight..."):
-                        response_data = services.weight_receipt.get_current_weight_from_scale()
+                        scale_type = st.session_state.get("wr_scale_type", "Standard").lower()
+                        response_data = services.weight_receipt.get_current_weight_from_scale(scale_type=scale_type)
                         if response_data.get("success") and response_data.get("status") == "stable":
                             weight = response_data.get("weight", 0.0)
                             st.session_state.wr_is_manual_entry = False
