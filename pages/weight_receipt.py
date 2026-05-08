@@ -64,6 +64,11 @@ def _should_post_to_finished_goods() -> bool:
     return material not in FG_EXCLUDED_MATERIALS
 
 
+def _is_rn_series_jc(job_card_number: str) -> bool:
+    """RN- prefix marks E&I orders, which have no concept of sets."""
+    return str(job_card_number or "").strip().upper().startswith("RN-")
+
+
 @st.dialog("Confirm Weight Receipt Save", width="large")
 def _show_save_confirmation_dialog(candidate_designs, job_card_number, party_name):
     """
@@ -791,6 +796,7 @@ def render_weight_receipt_form():
                     weighed_designs = []
                     actual_total_weight = 0.0
                     sum_design_deductions = 0.0
+                    is_rn_series = _is_rn_series_jc(selected_jc_str)
 
                     for i, row in edited_df.iterrows():
                         actual_weight = row["Actual Wt."]
@@ -802,7 +808,7 @@ def render_weight_receipt_form():
                             weighed_design_data['actual_weight'] = actual_weight
                             weighed_design_data['remark'] = row["Remark"]
                             weighed_design_data['design_deduction'] = row["Design Deduction"]
-                            weighed_design_data['sets'] = row["Sets"]
+                            weighed_design_data['sets'] = None if is_rn_series else row["Sets"]
                             weighed_designs.append(WeighedDesignDetail(**weighed_design_data))
 
                     if not weighed_designs:
@@ -837,8 +843,8 @@ def render_weight_receipt_form():
                         job_card_number=selected_jc_str,
                         party_name=selected_party,
                         po_no=selected_jc.get('po_no', 'N/A'),
-                        material=selected_jc.get('material', 'N/A'),
-                        sets=st.session_state.get('wr_sets_for_receipt', 0),
+                        material=(st.session_state.get('wr_material_type') or '').strip() or 'N/A',
+                        sets=0 if is_rn_series else st.session_state.get('wr_sets_for_receipt', 0),
                         designs=weighed_designs,
                         weight_entry_type="Loose Strips (Manual)" if st.session_state.get('wr_is_manual_entry') else "Loose Strips",
                         total_weight=actual_total_weight,
@@ -1006,11 +1012,14 @@ def render_weight_receipt_form():
                         st.error("Please fetch a valid total weight before saving.")
                         st.stop()
 
+                    is_rn_series = _is_rn_series_jc(selected_jc_str)
                     weighed_designs = []
                     for design_item in designs:
                         weighed_design_data = design_item.copy()
-                        weighed_design_data['actual_weight'] = 0 
+                        weighed_design_data['actual_weight'] = 0
                         weighed_design_data['remark'] = st.session_state.get('wr_core_remark', '')
+                        if is_rn_series:
+                            weighed_design_data['sets'] = None
                         weighed_designs.append(WeighedDesignDetail(**weighed_design_data))
 
                     # Validate cumulative weight for partial dispatch orders
@@ -1036,8 +1045,8 @@ def render_weight_receipt_form():
                         job_card_number=selected_jc_str,
                         party_name=selected_party,
                         po_no=selected_jc.get('po_no', 'N/A'),
-                        material=selected_jc.get('material', 'N/A'),
-                        sets=st.session_state.get('wr_sets_for_receipt', 0),
+                        material=(st.session_state.get('wr_material_type') or '').strip() or 'N/A',
+                        sets=0 if is_rn_series else st.session_state.get('wr_sets_for_receipt', 0),
                         designs=weighed_designs,
                         weight_entry_type="Building Core (Manual)" if st.session_state.get('wr_is_manual_entry') else "Building Core",
                         total_weight=actual_total_weight,

@@ -284,6 +284,31 @@ class WeightReceiptService:
             logger.error(f"Error in get_material_type_for_job_card for JC {job_card_number}: {e}")
             return ""
 
+    def get_job_card_material_type_map(self) -> dict:
+        """
+        Returns a {job_card_number_lower: material_type} dict built from the flat
+        'Sales Order' sheet. Used by the PDF generator to backfill the Type field
+        for older receipts (where the Material column may be empty or 'N/A').
+        """
+        try:
+            df = self.google_service.get_worksheet_data(self.spreadsheet_id, "Sales Order", header_row=1)
+            if df is None or df.empty:
+                return {}
+
+            jc_col = next((c for c in ("Job Card", "job_card_number", "Job Card No", "job_card", "JobCard") if c in df.columns), None)
+            type_col = next((c for c in ("type", "Type", "material_type", "Material Type", "Material") if c in df.columns), None)
+            if not jc_col or not type_col:
+                return {}
+
+            df = df[[jc_col, type_col]].dropna(subset=[jc_col]).copy()
+            df[jc_col] = df[jc_col].astype(str).str.strip().str.lower()
+            # Deduplicate; first occurrence wins
+            df = df.drop_duplicates(subset=[jc_col], keep='first')
+            return {row[jc_col]: ("" if pd.isna(row[type_col]) else str(row[type_col]).strip()) for _, row in df.iterrows()}
+        except Exception as e:
+            logger.error(f"Error building job card → material type map: {e}")
+            return {}
+
     def get_order_type_for_job_card(self, job_card_number: str) -> str:
         """
         Retrieves the order type for a given job card from the Sales Order-JC sheet.

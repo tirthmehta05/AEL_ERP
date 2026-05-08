@@ -649,11 +649,19 @@ class PDFService:
 
         return bytes(pdf.output(dest='S'))
 
-    def _draw_weight_receipt(self, pdf: FPDF, receipt_data: dict, rate: str = 'N/A'):
-        """Draws a single Weight Receipt on the current PDF page."""
+    def _draw_weight_receipt(self, pdf: FPDF, receipt_data: dict, rate: str = 'N/A', po_date=None, material_type: str = None):
+        """Draws a single Weight Receipt on the current PDF page.
+
+        Args:
+            po_date: PO/order date sourced from the Sales Order-JC sheet. Falls back
+                to the receipt date if not supplied (e.g., legacy receipts whose JC
+                row no longer exists).
+            material_type: Material type sourced from the flat Sales Order sheet.
+                Falls back to receipt_data['Material'] when missing.
+        """
         pdf.add_page()
         pdf.set_auto_page_break(auto=True, margin=15) # Re-enable auto page break for multi-page documents
-        
+
         # Title
         pdf.set_font("Helvetica", 'B', 18)
         pdf.cell(0, 10, f"Weight Receipt No: {receipt_data.get('WeightReceiptNumber', 'N/A')}", ln=True, align='C')
@@ -661,13 +669,17 @@ class PDFService:
 
         # --- Header Box ---
         line_height = 8
-        
+
         # Get data
         party_name = receipt_data.get('PartyName', 'N/A')
         po_no = receipt_data.get('PONumber', 'N/A')
         receipt_date_obj = receipt_data.get('Date')
         receipt_date = pd.to_datetime(receipt_date_obj, dayfirst=True).strftime('%d/%m/%Y') if pd.notna(receipt_date_obj) else 'N/A'
+        # PO Date comes from the JC's order_date; fall back to the receipt date for legacy/missing JCs.
+        po_date_display = pd.to_datetime(po_date, dayfirst=True).strftime('%d/%m/%Y') if pd.notna(po_date) else receipt_date
         card_no = receipt_data.get('JobCardNumber', 'N/A')
+        # RN- prefix marks E&I orders, which have no concept of sets — suppress them in the PDF.
+        is_rn_series = str(card_no).strip().upper().startswith('RN-')
         
         designs = json.loads(receipt_data.get('DesignDetailsWithWeightsJSON', '[]'))
         job_no = designs[0].get('party_job_no', 'N/A') if designs else 'N/A'
@@ -687,7 +699,7 @@ class PDFService:
         pdf.set_font("Helvetica", 'B', 12)
         pdf.cell(25, line_height, "PO Date", border='B')
         pdf.set_font("Helvetica", '', 12)
-        pdf.cell(0, line_height, f": {receipt_date}", border='B,R', ln=True)
+        pdf.cell(0, line_height, f": {po_date_display}", border='B,R', ln=True)
 
         # Line 3: Card No and Job No
         pdf.set_font("Helvetica", 'B', 12)
@@ -794,8 +806,8 @@ class PDFService:
                 if item.get('mm_stack'):
                     description += f" X {item.get('mm_stack', '')}"
                 
-                # Show sets if present (Itemized Mode)
-                if item.get('sets'):
+                # Show sets if present (Itemized Mode); suppress for RN- (E&I) job cards.
+                if item.get('sets') and not is_rn_series:
                     description += f" ({item.get('sets')} sets)"
                 
                 item_remark = item.get('remark', '')
@@ -822,28 +834,40 @@ class PDFService:
                 pdf.cell(net_w, row_height, f"{net_weight:.3f}" if weight > 0 else "", border=1, align='R', ln=True)
 
         # --- Table Footer ---
+        # Type / Set / Rem each get their own line, stacked inside the Description
+        # column. Avoids overflow when any one value (e.g. 'CRNO EI TRD' type or a
+        # long remark) is wider than its previous narrow sub-cell.
         pdf.set_font("Helvetica", '', 10)
-        # Empty Sr No cell
-        pdf.cell(sr_no_w, 8, '', border='LTB')
 
-        # Type (40mm) + Set (20mm) + Remark (rest)
-        # Width sum must match desc_w = 80
-        # Let's adjust widths to fit nicely
-        
-        type_w = 30
-        set_w = 15
-        rem_w = 35 
-        
-        pdf.cell(type_w, 8, f"Type: {receipt_data.get('Material', 'N/A')}", border='TB')
-        pdf.cell(set_w, 8, f"Set: {receipt_data.get('Sets', 'N/A')}", border='TB')
-        
+        row_h = 5
+        footer_h = row_h * 3
+
+        type_value = (material_type if material_type else None) or receipt_data.get('Material') or 'N/A'
+        type_text = f"Type: {type_value}"
+        set_text = "" if is_rn_series else f"Set: {receipt_data.get('Sets', 'N/A')}"
         remark_text = f"Rem: {core_receipt_remark}" if is_core_building and core_receipt_remark else ""
-        pdf.cell(rem_w, 8, remark_text, border='TB')
+
+        y0 = pdf.get_y()
+        x0 = pdf.get_x()
+
+        # Sr No (empty, spans full footer height)
+        pdf.cell(sr_no_w, footer_h, '', border='LTB')
+        x_desc = x0 + sr_no_w
+
+        # Three stacked lines in the Description column. Borders only on outer
+        # edges (T on first row, B on last) so the footer reads as a single box.
+        pdf.set_xy(x_desc, y0)
+        pdf.cell(desc_w, row_h, type_text, border='T', align='L')
+        pdf.set_xy(x_desc, y0 + row_h)
+        pdf.cell(desc_w, row_h, set_text, border=0, align='L')
+        pdf.set_xy(x_desc, y0 + 2 * row_h)
+        pdf.cell(desc_w, row_h, remark_text, border='B', align='L')
+
+        pdf.set_xy(x_desc + desc_w, y0)
 
         # Totals
-        # Weights should align with columns
         pdf.set_font("Helvetica", 'B', 10)
-        
+
         # Recalculate based on the logic above
         if not is_core_building and sum_design_deductions > 0:
              final_deduction = sum_design_deductions
@@ -852,9 +876,9 @@ class PDFService:
 
         net_weight = total_weight - final_deduction
 
-        pdf.cell(gross_w, 8, f"{total_weight:.3f}", border=1, align='R')
-        pdf.cell(deduction_w, 8, f"{final_deduction:.3f}", border=1, align='R')
-        pdf.cell(net_w, 8, f"{net_weight:.3f}", border=1, align='R', ln=True)
+        pdf.cell(gross_w, footer_h, f"{total_weight:.3f}", border=1, align='R')
+        pdf.cell(deduction_w, footer_h, f"{final_deduction:.3f}", border=1, align='R')
+        pdf.cell(net_w, footer_h, f"{net_weight:.3f}", border=1, align='R', ln=True)
         pdf.ln(2)
 
         # --- Details below table ---
@@ -887,7 +911,13 @@ class PDFService:
         pdf = FPDF(orientation='P', unit='mm', format='A4')
         sales_orders = self.sales_order_service.get_sales_orders_for_job_card(include_designs=False)
         sales_order_rates = {so.get('job_card_number'): so.get('rate_per_kg', 'N/A') for so in sales_orders if so.get('job_card_number')}
+        sales_order_po_dates = {so.get('job_card_number'): so.get('order_date') for so in sales_orders if so.get('job_card_number')}
+        # Built once per PDF generation; used as a fallback for legacy receipts whose Material column is missing/N/A.
+        material_type_map = self.weight_receipt_service.get_job_card_material_type_map()
         for receipt_data in selected_receipts:
-            rate = sales_order_rates.get(receipt_data.get('JobCardNumber'), 'N/A')
-            self._draw_weight_receipt(pdf, receipt_data, rate)
+            jc = receipt_data.get('JobCardNumber')
+            rate = sales_order_rates.get(jc, 'N/A')
+            po_date = sales_order_po_dates.get(jc)
+            material_type = material_type_map.get(str(jc).strip().lower(), '') if jc else ''
+            self._draw_weight_receipt(pdf, receipt_data, rate, po_date=po_date, material_type=material_type)
         return bytes(pdf.output(dest='S'))
