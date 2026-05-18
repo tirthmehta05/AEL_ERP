@@ -27,10 +27,15 @@ class WeightReceiptService:
         self.google_service = google_drive_service
         self.spreadsheet_id = settings.api.google_sheets_id
 
-    def _get_or_refresh_all_weight_receipts(self, force_refresh: bool = False) -> pd.DataFrame:
+    def _get_or_refresh_all_weight_receipts(
+        self, force_refresh: bool = False, raise_on_error: bool = False
+    ) -> pd.DataFrame:
         """
         Retrieves all weight receipts from the repository, using an internal cache.
         If the cache is stale or force_refresh is True, it fetches new data.
+
+        raise_on_error=True propagates a read failure (the repository raises
+        before the cache is touched, so a failed read never poisons the cache).
         """
         current_time = datetime.now()
         if (
@@ -41,9 +46,9 @@ class WeightReceiptService:
         ):
             logger.debug("Using cached all weight receipts DataFrame.")
             return self._cached_all_weight_receipts_df
-        
+
         logger.debug("Refreshing all weight receipts DataFrame (cache stale or forced).")
-        df = self.repository.get_all_weight_receipts()
+        df = self.repository.get_all_weight_receipts(raise_on_error=raise_on_error)
         self._cached_all_weight_receipts_df = df
         self._cached_all_weight_receipts_timestamp = current_time
         return df
@@ -51,31 +56,46 @@ class WeightReceiptService:
     def get_next_weight_receipt_number(self) -> int:
         """
         Generates the next sequential weight receipt number.
-        Starts from 10315 if no higher numeric-only number is found.
+
+        Returns the seed 10315 ONLY when the WeightReceipts sheet was read
+        successfully and is genuinely empty. If the sheet cannot be read
+        (Google Sheets rate limit / network error), this RAISES so the caller
+        aborts the save — it must NOT fall back to a seed or timestamp number,
+        because that silently writes a duplicate/regressed receipt number.
+
+        Incident 2026-05-16: a 429 read-quota error returned an empty
+        DataFrame, the old code treated it as "empty sheet", and WR was saved
+        as the seed 10315 instead of 10957.
         """
         try:
-            # Use the internally cached DataFrame
-            df = self._get_or_refresh_all_weight_receipts()
-            
+            # Strict read: a failed read must propagate, not look like "empty".
+            df = self._get_or_refresh_all_weight_receipts(raise_on_error=True)
+
             if df is None or df.empty or "WeightReceiptNumber" not in df.columns:
+                # Genuine empty/new sheet (the read succeeded with zero rows).
                 return 10315
 
             max_receipt_num = 10314  # The base number to compare against
-            
+
             # Filter for strings that are purely numeric, then convert and find max
             numeric_receipts = pd.to_numeric(df['WeightReceiptNumber'], errors='coerce').dropna()
-            
+
             if not numeric_receipts.empty:
                 current_max = numeric_receipts.max()
                 if current_max > max_receipt_num:
                     max_receipt_num = int(current_max)
-            
+
             return max_receipt_num + 1
 
         except Exception as e:
-            logger.error(f"Error generating next weight receipt number: {e}")
-            # Fallback to a timestamp-based unique number in case of error
-            return int(datetime.now().timestamp())
+            # Log for observability, then re-raise. NO seed/timestamp fallback:
+            # the caller is responsible for aborting the save and asking the
+            # user to retry once Sheets is reachable again.
+            logger.error(
+                "Could not read WeightReceipts to allocate a receipt number; "
+                "aborting instead of falling back to a seed/timestamp: %s", e
+            )
+            raise
 
     def generate_weight_receipt_number(self) -> str:
         """Generates a new sequential weight receipt number as a string."""
