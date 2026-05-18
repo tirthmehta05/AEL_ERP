@@ -129,9 +129,18 @@ class GoogleDriveService:
             self.client = None
 
     def get_worksheet_data(
-        self, spreadsheet_id: str, worksheet_name: str, header_row: int = 1
+        self, spreadsheet_id: str, worksheet_name: str, header_row: int = 1,
+        raise_on_error: bool = False,
     ) -> pd.DataFrame:
-        """Get data from a specific worksheet, specifying the header row."""
+        """Get data from a specific worksheet, specifying the header row.
+
+        By default a read failure (rate limit, network, etc.) is swallowed and
+        an empty DataFrame is returned (legacy behavior). Pass
+        raise_on_error=True for callers where "empty sheet" and "failed to
+        read" must NOT be conflated — e.g. sequential ID allocation, where
+        treating a failed read as an empty sheet writes a duplicate/seed
+        number. With raise_on_error=True the exception propagates.
+        """
         try:
             if not self.client:
                 raise Exception("Google Drive client not initialized")
@@ -153,9 +162,13 @@ class GoogleDriveService:
 
         except APIError as e:
             logger.error(f"A gspread API error occurred while reading '{worksheet_name}': {str(e)}")
+            if raise_on_error:
+                raise
             return pd.DataFrame()
         except Exception as e:
             logger.error(f"An unexpected error occurred while reading worksheet '{worksheet_name}': {str(e)}")
+            if raise_on_error:
+                raise
             return pd.DataFrame()
 
     def get_dropdown_options(

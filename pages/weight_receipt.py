@@ -70,13 +70,23 @@ def _is_rn_series_jc(job_card_number: str) -> bool:
 
 
 @st.dialog("Confirm Weight Receipt Save", width="large")
-def _show_save_confirmation_dialog(candidate_designs, job_card_number, party_name):
+def _show_save_confirmation_dialog(candidate_designs, job_card_number, party_name, preview_wr_number=None):
     """
     Shows a modal dialog with all weighed designs for the user to review
     and optionally deselect before saving. This is the final selection
     step — the grid checkboxes are only used for weighing.
+
+    `preview_wr_number` is a best-effort, NON-binding preview of the next
+    receipt number. The binding number is still allocated at save time (to
+    avoid race conditions), so this is shown as approximate and may differ
+    by one if another receipt is saved while this dialog is open.
     """
     st.markdown(f"**Job Card:** {job_card_number} &nbsp; | &nbsp; **Party:** {party_name}")
+    if preview_wr_number is not None:
+        st.markdown(f"**Weight Receipt No. (approx.):** ~{preview_wr_number}")
+        st.caption("Approximate — the final number is assigned when you click Confirm Save.")
+    else:
+        st.caption("Weight Receipt number will be assigned when you click Confirm Save.")
     st.markdown("Review the designs below. **Uncheck** any you don't want to save.")
     st.markdown("---")
 
@@ -772,10 +782,22 @@ def render_weight_receipt_form():
                     if not candidate_designs:
                         st.error("Please weigh at least one item before saving.", icon="⚠️")
                     else:
+                        # Best-effort preview of the next receipt number, computed
+                        # ONCE here (not inside the dialog, which reruns on every
+                        # interaction). Non-binding: the real number is allocated
+                        # at Confirm Save. A failed read must not block the
+                        # dialog — fall back to None and the dialog hides it.
+                        try:
+                            preview_wr_number = services.weight_receipt.get_next_weight_receipt_number()
+                        except Exception as e:
+                            logger.debug("WR number preview unavailable for JC %s: %s", selected_jc_str, e)
+                            preview_wr_number = None
+
                         _show_save_confirmation_dialog(
                             candidate_designs,
                             job_card_number=selected_jc_str,
-                            party_name=selected_party
+                            party_name=selected_party,
+                            preview_wr_number=preview_wr_number,
                         )
 
                 # --- Step 2: Process confirmed save (triggered by dialog rerun) ---
@@ -835,7 +857,19 @@ def render_weight_receipt_form():
                                 icon="⚠️"
                             )
 
-                    generated_wr_number = services.weight_receipt.generate_weight_receipt_number()
+                    try:
+                        generated_wr_number = services.weight_receipt.generate_weight_receipt_number()
+                    except Exception as e:
+                        logger.error("WR number allocation failed for JC %s: %s", selected_jc_str, e)
+                        if selected_jc_str in st.session_state.wr_save_locks:
+                            del st.session_state.wr_save_locks[selected_jc_str]
+                        st.error(
+                            "Couldn't reach Google Sheets to allocate a receipt number "
+                            "(likely a temporary rate limit). Nothing was saved — "
+                            "please wait a minute and click Save again.",
+                            icon="⚠️"
+                        )
+                        st.stop()
 
                     request = WeightReceiptRequest(
                         weight_receipt_number=generated_wr_number,
@@ -1037,7 +1071,19 @@ def render_weight_receipt_form():
                             )
 
                     # Generate weight receipt number at save time to prevent race conditions
-                    generated_wr_number = services.weight_receipt.generate_weight_receipt_number()
+                    try:
+                        generated_wr_number = services.weight_receipt.generate_weight_receipt_number()
+                    except Exception as e:
+                        logger.error("WR number allocation failed for JC %s: %s", selected_jc_str, e)
+                        if selected_jc_str in st.session_state.wr_save_locks:
+                            del st.session_state.wr_save_locks[selected_jc_str]
+                        st.error(
+                            "Couldn't reach Google Sheets to allocate a receipt number "
+                            "(likely a temporary rate limit). Nothing was saved — "
+                            "please wait a minute and click Save again.",
+                            icon="⚠️"
+                        )
+                        st.stop()
 
                     request = WeightReceiptRequest(
                         weight_receipt_number=generated_wr_number,

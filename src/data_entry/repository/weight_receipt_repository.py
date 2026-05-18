@@ -11,9 +11,16 @@ class WeightReceiptRepository:
         self.spreadsheet_id = settings.api.google_sheets_id
         self.worksheet_name = "WeightReceipts"
 
-    def get_all_weight_receipts(self) -> pd.DataFrame:
-        """Fetches all weight receipts from the Google Sheet."""
-        return self.google_service.get_worksheet_data(self.spreadsheet_id, self.worksheet_name, header_row=1)
+    def get_all_weight_receipts(self, raise_on_error: bool = False) -> pd.DataFrame:
+        """Fetches all weight receipts from the Google Sheet.
+
+        raise_on_error=True propagates read failures instead of returning an
+        empty DataFrame — required for receipt-number allocation.
+        """
+        return self.google_service.get_worksheet_data(
+            self.spreadsheet_id, self.worksheet_name, header_row=1,
+            raise_on_error=raise_on_error,
+        )
 
     def save_weight_receipt(self, data_row: list) -> bool:
         """Saves a new weight receipt to the Google Sheet."""

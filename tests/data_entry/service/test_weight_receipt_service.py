@@ -201,3 +201,51 @@ def test_clear_drafts_for_design_indices_no_matching_indices(wr_service_with_goo
     written_data = mock_worksheet.update.call_args[0][0]
     # headers + 1 original row (unchanged)
     assert len(written_data) == 2
+
+
+# --- Tests for get_next_weight_receipt_number ---
+# Regression guard for incident 2026-05-16: a Google Sheets 429 read-quota
+# error returned an empty DataFrame, the old code read that as "empty sheet",
+# and a Weight Receipt was saved as the seed 10315 instead of 10957.
+
+def test_next_number_is_max_plus_one(weight_receipt_service):
+    """Normal case: next number is (max existing numeric number) + 1."""
+    df = pd.DataFrame({'WeightReceiptNumber': ['10955', '10956']})
+    weight_receipt_service.repository.get_all_weight_receipts.return_value = df
+
+    assert weight_receipt_service.get_next_weight_receipt_number() == 10957
+
+
+def test_next_number_seed_on_genuinely_empty_sheet(weight_receipt_service):
+    """A *successful* read that returns zero rows -> the 10315 seed is valid."""
+    weight_receipt_service.repository.get_all_weight_receipts.return_value = pd.DataFrame()
+
+    assert weight_receipt_service.get_next_weight_receipt_number() == 10315
+
+
+def test_next_number_raises_on_read_failure_no_seed_fallback(weight_receipt_service):
+    """
+    The core fix: when the receipts sheet cannot be read, numbering must
+    RAISE — it must NOT silently fall back to the seed 10315 (or a
+    timestamp), because that writes a duplicate/regressed receipt number.
+    """
+    weight_receipt_service.repository.get_all_weight_receipts.side_effect = (
+        Exception("APIError [429]: Quota exceeded for 'Read requests'")
+    )
+
+    with pytest.raises(Exception):
+        weight_receipt_service.get_next_weight_receipt_number()
+
+
+def test_next_number_uses_strict_read(weight_receipt_service):
+    """
+    Numbering must request a strict read (raise_on_error=True) so a failed
+    read can never masquerade as an empty sheet.
+    """
+    df = pd.DataFrame({'WeightReceiptNumber': ['10956']})
+    weight_receipt_service.repository.get_all_weight_receipts.return_value = df
+
+    weight_receipt_service.get_next_weight_receipt_number()
+
+    _, kwargs = weight_receipt_service.repository.get_all_weight_receipts.call_args
+    assert kwargs.get('raise_on_error') is True
