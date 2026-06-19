@@ -18,6 +18,9 @@ dependencies = [
     "pandas==2.2.3",
     "openpyxl==3.1.5",
     "numpy==1.26.4",
+
+    # Slitting optimizer (engine in slitting_optimizer/)
+    "ortools>=9.8",
     
     # Utilities
     "python-multipart==0.0.12",
