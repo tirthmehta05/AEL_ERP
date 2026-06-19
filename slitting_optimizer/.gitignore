@@ -1,0 +1,24 @@
+# business data & runtime state — most of data/ is git-ignored,
+# but commit the small test fixtures the validate suite + UI tests need.
+data/*
+!data/.gitkeep
+!data/sample_customers_v3.xlsx
+!data/sample_auction_lists/
+data/measurement_reports/
+data/sessions/
+data/_tmp_*/
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# env / secrets
+.env
+.venv/
+env/
+
+# os
+.DS_Store
