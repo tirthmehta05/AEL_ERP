@@ -143,27 +143,27 @@ _CSS = """
 
 def _solve_auction(auction_path: Path, orders, status_cb, time_limit_s: int):
     """Iterate lots, solve each, stream progress through status_cb(lot, idx, total, summary).
-    Returns (records, auction_flags)."""
-    import os as _os
+    Returns (records, auction_flags).
+
+    The engine's SOLVE_TIME_LIMIT_S is a module-level constant set at import
+    from os.environ. We override it directly per solve here so the slider's
+    value is actually honoured (env vars set after import are not re-read)."""
     coils, auction_flags = ar.parse_auction(auction_path)
     by_lot: dict[str, list[dict]] = defaultdict(list)
     for c in coils:
         by_lot[c["lot"]].append(c)
     lots = sorted(by_lot)
     records = []
-    for i, lot in enumerate(lots, start=1):
-        status_cb(lot, i, len(lots), None)
-        old = _os.environ.get("SLIT_TIME_LIMIT", "")
-        _os.environ["SLIT_TIME_LIMIT"] = str(time_limit_s)
-        try:
+    old_limit = eng.SOLVE_TIME_LIMIT_S
+    try:
+        eng.SOLVE_TIME_LIMIT_S = time_limit_s
+        for i, lot in enumerate(lots, start=1):
+            status_cb(lot, i, len(lots), None)
             rec = mr._build_lot_record(lot, by_lot[lot], orders, time_limit_s)
-        finally:
-            if old:
-                _os.environ["SLIT_TIME_LIMIT"] = old
-            else:
-                _os.environ.pop("SLIT_TIME_LIMIT", None)
-        records.append(rec)
-        status_cb(lot, i, len(lots), rec)
+            records.append(rec)
+            status_cb(lot, i, len(lots), rec)
+    finally:
+        eng.SOLVE_TIME_LIMIT_S = old_limit
     return records, auction_flags
 
 
@@ -282,35 +282,44 @@ def _render_lot_card(r):
             f'</tr>'
         )
     flags_html = _render_risk_flags(r)
-    html = f"""
-<div class="bo-card {status} bo-root">
-  <div class="bo-card-head">
-    <span class="bo-lot-no">LOT {r['lot']}</span>
-    <span class="bo-status {status}">{'BID' if r['bidable'] else 'SKIP'}</span>
-    <span class="bo-meta">{_fmt_t(r['weight_kg'])} · {r['n_coils']} coils · start ₹{r['start']:.2f}/kg · {coat_str}</span>
-  </div>
-  <div class="bo-grid">
-    <div class="bo-spec">
-      <div class="bo-mini-label">Headroom @ {r['primary_name']}</div>
-      <div class="bo-mono" style="color:{headroom_color}; font-size:18px; font-weight:600; margin:2px 0 14px">
-        {'+' if r['headroom']>=0 else ''}₹{r['headroom']:.2f} / kg
-      </div>
-      <div class="bo-mini-label">Profit @ {r['primary_name']}</div>
-      <div class="bo-mono" style="font-size:16px; font-weight:600; margin:2px 0 14px">{_fmt_rs(r['profit_primary'])}</div>
-      <div class="bo-mini-label">Margin (net / gross)</div>
-      <div class="bo-mono" style="margin:2px 0 14px">{r['margin_net']:.2f}% / {r['margin_gross']:.2f}%</div>
-      <div class="bo-mini-label">Transport %</div>
-      <div class="bo-mono" style="margin:2px 0 14px">{r['transport_pct']:.2f}%</div>
-      {f'<div style="margin-top:8px">{flags_html}</div>' if flags_html else ''}
-    </div>
-    <div>
-      <div class="bo-mini-label" style="margin-bottom:6px">Bid tiers (post-transport net)</div>
-      <table class="bo-tier-table">{"".join(tier_rows)}</table>
-    </div>
-  </div>
-</div>
-"""
-    st.markdown(html, unsafe_allow_html=True)
+    # st.html bypasses the markdown processor that was choking on the inline
+    # <table>. Keep CSS injection via st.markdown (style tag only) — that path
+    # is fine.
+    flag_block = (f'<div style="margin-top:8px">{flags_html}</div>'
+                  if flags_html else "")
+    sign = "+" if r["headroom"] >= 0 else ""
+    html = (
+        f'<div class="bo-card {status} bo-root">'
+        f'<div class="bo-card-head">'
+        f'<span class="bo-lot-no">LOT {r["lot"]}</span>'
+        f'<span class="bo-status {status}">{"BID" if r["bidable"] else "SKIP"}</span>'
+        f'<span class="bo-meta">{_fmt_t(r["weight_kg"])} · {r["n_coils"]} coils · '
+        f'start ₹{r["start"]:.2f}/kg · {coat_str}</span>'
+        f'</div>'
+        f'<div class="bo-grid">'
+        f'<div class="bo-spec">'
+        f'<div class="bo-mini-label">Headroom @ {r["primary_name"]}</div>'
+        f'<div class="bo-mono" style="color:{headroom_color}; font-size:18px; '
+        f'font-weight:600; margin:2px 0 14px">{sign}₹{r["headroom"]:.2f} / kg</div>'
+        f'<div class="bo-mini-label">Profit @ {r["primary_name"]}</div>'
+        f'<div class="bo-mono" style="font-size:16px; font-weight:600; '
+        f'margin:2px 0 14px">{_fmt_rs(r["profit_primary"])}</div>'
+        f'<div class="bo-mini-label">Margin (net / gross)</div>'
+        f'<div class="bo-mono" style="margin:2px 0 14px">'
+        f'{r["margin_net"]:.2f}% / {r["margin_gross"]:.2f}%</div>'
+        f'<div class="bo-mini-label">Transport %</div>'
+        f'<div class="bo-mono" style="margin:2px 0 14px">{r["transport_pct"]:.2f}%</div>'
+        f'{flag_block}'
+        f'</div>'
+        f'<div>'
+        f'<div class="bo-mini-label" style="margin-bottom:6px">'
+        f'Bid tiers (post-transport net)</div>'
+        f'<table class="bo-tier-table">{"".join(tier_rows)}</table>'
+        f'</div>'
+        f'</div>'
+        f'</div>'
+    )
+    st.html(html)
 
 
 def _render_pnl_table(r):
@@ -348,8 +357,9 @@ def _render_cut_plan(r):
             f"{wt_kg:.0f}kg  ·  {c['coating']}  ·  {disp}\n"
             f"    {bk.get('cut_pattern', '')}"
         )
-    st.markdown(f'<div class="bo-pattern">' + "\n\n".join(lines) + "</div>",
-                unsafe_allow_html=True)
+    # newlines inside <div> get preserved by white-space: pre-wrap CSS
+    body = ("\n\n").join(lines)
+    st.html(f'<div class="bo-pattern">{body}</div>')
 
 
 def _render_customer_split(r):
@@ -363,8 +373,7 @@ def _render_customer_split(r):
 def _render_customer_fulfillment(records_summary, orders):
     if not records_summary:
         return
-    st.markdown('<div class="bo-section-head">Customer fulfillment</div>',
-                unsafe_allow_html=True)
+    st.html('<div class="bo-section-head">Customer fulfillment</div>')
     cust_to_lots = defaultdict(list)
     for r in records_summary:
         for cust, kg in r["by_cust"].items():
@@ -426,8 +435,7 @@ def _excel_download_button(records, orders, customer_flags, auction_flags,
 # ── Page sections ───────────────────────────────────────────────────────────
 
 def _upload_section():
-    st.markdown('<div class="bo-section-head">1 · Upload auction</div>',
-                unsafe_allow_html=True)
+    st.html('<div class="bo-section-head">1 · Upload auction</div>')
     uploaded = st.file_uploader(
         "Auction Excel from Steelemart / JSW",
         type=["xlsx", "xls"],
@@ -444,8 +452,7 @@ def _upload_section():
 
 
 def _solve_section(orders):
-    st.markdown('<div class="bo-section-head">2 · Solve auction</div>',
-                unsafe_allow_html=True)
+    st.html('<div class="bo-section-head">2 · Solve auction</div>')
     cols = st.columns([2, 1, 1])
     time_budget = cols[0].slider(
         "Per-lot time budget (seconds)",
@@ -468,6 +475,10 @@ def _solve_section(orders):
                 start_time = time.time()
 
                 def _cb(lot, idx, total, rec):
+                    # `idx` is 1-based; `rec is None` means this lot just
+                    # STARTED, `rec is not None` means it just FINISHED.
+                    completed = idx if rec is not None else idx - 1
+                    remaining = total - completed
                     if rec is None:
                         st.write(f"▶ Solving lot {lot} ({idx}/{total})…")
                     elif rec.get("feasible"):
@@ -477,12 +488,19 @@ def _solve_section(orders):
                             f"{rec['solve_time_s']:.1f}s")
                     else:
                         st.write(f"✗ Lot {lot} → INFEASIBLE ({rec['status']})")
-                    progress.progress(idx / max(total, 1))
+                    progress.progress(completed / max(total, 1))
+                    # ETA: use observed avg if we have completed lots, otherwise
+                    # the per-lot budget × remaining as the worst-case upper
+                    # bound. Never goes below the current lot's remaining budget.
                     elapsed = time.time() - start_time
-                    eta = (elapsed / idx) * (total - idx) if idx else 0
+                    if completed > 0:
+                        avg = elapsed / completed
+                        eta = int(avg * remaining)
+                    else:
+                        eta = int(time_budget * remaining)
                     status.update(
-                        label=f"Solving auction… {idx}/{total}  ·  "
-                              f"~{eta:.0f}s remaining")
+                        label=f"Solving auction… {completed}/{total}  ·  "
+                              f"~{eta}s remaining (upper bound)")
 
                 records, auction_flags = _solve_auction(
                     auction_path, orders, _cb, time_budget)
@@ -512,8 +530,7 @@ def _results_section(orders, customer_flags):
     bidable = [r for r in enriched if r["bidable"]]
     skip = [r for r in enriched if not r["bidable"]]
 
-    st.markdown('<div class="bo-section-head">3 · Results</div>',
-                unsafe_allow_html=True)
+    st.html('<div class="bo-section-head">3 · Results</div>')
     _render_header(enriched)
     _excel_download_button(
         records, orders, customer_flags,
@@ -521,8 +538,7 @@ def _results_section(orders, customer_flags):
         st.session_state.slopt_uploaded_name or "auction")
 
     if bidable:
-        st.markdown('<div class="bo-section-head">Lots to bid</div>',
-                    unsafe_allow_html=True)
+        st.html('<div class="bo-section-head">Lots to bid</div>')
         for r in sorted(bidable, key=lambda x: -x["profit_primary"]):
             _render_lot_card(r)
             with st.expander(f"Details — Lot {r['lot']}"):
@@ -547,9 +563,8 @@ def _results_section(orders, customer_flags):
 
 def render() -> None:
     _init_state()
-    st.markdown(_CSS, unsafe_allow_html=True)
-    st.markdown('<h1 class="bo-disp">Bid Optimizer</h1>',
-                unsafe_allow_html=True)
+    st.html(_CSS)
+    st.html('<h1 class="bo-disp">Bid Optimizer</h1>')
     st.caption(
         "Upload an auction Excel · the engine solves each lot · per-lot cards "
         "show BID/SKIP with four tier ceilings (SAFE → CEILING) and "
