@@ -60,6 +60,14 @@ def _init_state() -> None:
         "slopt_lot_records": None,
         "slopt_auction_flags": None,
         "slopt_solve_lock": 0.0,
+        # Per-lot transport overrides set by the user post-solve. Shape:
+        #   { lot_id: {"kapson_rs_per_kg": float,
+        #              "slitter_rs_per_kg": float} }
+        # Defaults when missing: KAPSON ₹1/kg (current TRANSPORT_RATES),
+        # source→slitter ₹0 (implicit current assumption). The optimizer
+        # doesn't see transport — only the bid ceiling depends on it, so
+        # this is a pure display-layer recompute (no re-solve).
+        "slopt_transport_overrides": {},
     }
     for k, v in defaults.items():
         st.session_state.setdefault(k, v)
@@ -167,9 +175,59 @@ def _solve_auction(auction_path: Path, orders, status_cb, time_limit_s: int):
     return records, auction_flags
 
 
-def _enrich_record(rec, orders) -> dict:
+def _compute_transport(rec, orders, override: dict | None) -> dict:
+    """Per-lot transport breakdown.
+
+    Three components (only the first two are user-overridable):
+      1. KAPSON-bound kg × source→KAPSON ₹/kg (override `kapson_rs_per_kg`,
+         default the existing TRANSPORT_RATES["kapson"] flat rate, ₹1/kg).
+      2. Slit-bound kg × source→OUR slitter ₹/kg (override
+         `slitter_rs_per_kg`, default ₹0 — current implicit assumption).
+      3. Per-customer slitter→customer ₹/T from TRANSPORT_RATES (fixed;
+         these don't depend on source location, only customer destination).
+
+    Returns {kapson_kg, kapson_rate, kapson_cost, slit_kg, slit_rate,
+             slit_cost_source, cust_cost_slitter_to_customer, total}.
+    """
+    override = override or {}
+    # split allocations by KAPSON vs slit
+    kapson_kg = 0.0
+    slit_kg_by_cust: dict[str, float] = defaultdict(float)
+    for oid, kg in rec.get("cust_alloc_kg", {}).items():
+        cust = next(o["customer"] for o in orders if o["id"] == oid)
+        if cust.lower() == "kapson":
+            kapson_kg += kg
+        else:
+            slit_kg_by_cust[cust] += kg
+    slit_kg = sum(slit_kg_by_cust.values())
+    # 1. source → KAPSON
+    kapson_rate = float(override.get("kapson_rs_per_kg", 1.0))
+    kapson_cost = kapson_kg * kapson_rate
+    # 2. source → slitter (only for slit-bound material)
+    slitter_rate = float(override.get("slitter_rs_per_kg", 0.0))
+    slit_cost_source = slit_kg * slitter_rate
+    # 3. slitter → customer (per-customer fixed bracket rates)
+    cust_cost = 0.0
+    for cust, kg in slit_kg_by_cust.items():
+        rate_per_t = mr._bracket_rate_for_auction(cust, kg)
+        cust_cost += rate_per_t * kg / 1000
+    total = kapson_cost + slit_cost_source + cust_cost
+    return {
+        "kapson_kg": kapson_kg, "kapson_rate": kapson_rate,
+        "kapson_cost": kapson_cost,
+        "slit_kg": slit_kg, "slit_rate": slitter_rate,
+        "slit_cost_source": slit_cost_source,
+        "cust_cost_slitter_to_customer": cust_cost,
+        "total": total,
+    }
+
+
+def _enrich_record(rec, orders, transport_override: dict | None = None) -> dict:
     """Compute tier bids, transport, headroom, customer split. Returns a flat dict
-    of UI-ready fields keyed off the lot record. Idempotent — safe to re-call."""
+    of UI-ready fields keyed off the lot record. Idempotent — safe to re-call.
+
+    `transport_override` is the per-lot dict (kapson_rs_per_kg, slitter_rs_per_kg);
+    None falls back to defaults (₹1/kg KAPSON, ₹0 slitter)."""
     if not rec["feasible"]:
         return {"feasible": False, "lot": rec["lot"], "status": rec["status"]}
     m = rec["metrics"]
@@ -178,14 +236,8 @@ def _enrich_record(rec, orders) -> dict:
     revenue = m["total_rev"]
     slit_cost = rec.get("slit_cost_rs", 0.0)
     start = coils[0]["price_per_kg"] if coils else 0.0
-    # transport via the existing measurement-report helper (auction-wide bracket
-    # attribution requires per-customer totals; we approximate per-lot using the
-    # lot's own customer totals here for the UI — same as Excel).
-    cust_totals = defaultdict(float)
-    for oid, kg in rec.get("cust_alloc_kg", {}).items():
-        cust = next(o["customer"] for o in orders if o["id"] == oid)
-        cust_totals[cust] += kg
-    transport = mr._lot_transport_cost(rec, orders, dict(cust_totals))
+    tx = _compute_transport(rec, orders, transport_override)
+    transport = tx["total"]
     tiers = get_bid_tiers()
     bids = [(name, mn, bid_for_net_margin(revenue, slit_cost, transport,
                                           weight, mn))
@@ -205,6 +257,7 @@ def _enrich_record(rec, orders) -> dict:
         "feasible": True, "lot": rec["lot"], "weight_kg": weight,
         "n_coils": len(coils), "start": start, "coatings": coatings,
         "revenue": revenue, "slit_cost": slit_cost, "transport": transport,
+        "transport_breakdown": tx,
         "tiers": bids, "primary_name": primary_name,
         "primary_bid": primary_bid, "bidable": bidable,
         "headroom": primary_bid - start,
@@ -370,6 +423,64 @@ def _render_customer_split(r):
     st.dataframe(rows, use_container_width=True, hide_index=True)
 
 
+def _render_transport_override(r):
+    """Per-lot transport-override inputs. Changing either value reruns the
+    page, _enrich_record recomputes transport, and the tier ceilings refresh
+    above. The cut plan is unchanged (optimizer never saw transport)."""
+    lot = r["lot"]
+    tx = r["transport_breakdown"]
+    overrides = st.session_state.slopt_transport_overrides.setdefault(lot, {})
+    st.caption(
+        "Override the source-side transport for this lot below — the bid "
+        "ceilings above refresh live. The cut plan is unchanged. Per-customer "
+        "slitter→customer rates stay fixed (they don't depend on source)."
+    )
+    cols = st.columns(2)
+    with cols[0]:
+        new_kapson = st.number_input(
+            f"Source → KAPSON (₹/kg) — {tx['kapson_kg']:,.0f} kg",
+            min_value=0.0, max_value=20.0,
+            value=float(overrides.get("kapson_rs_per_kg", 1.0)),
+            step=0.1, key=f"slopt_kap_{lot}",
+            help="Direct ship cost from this lot's source location to KAPSON. "
+                 "Default ₹1/kg (Pune-near baseline).",
+        )
+        if new_kapson != overrides.get("kapson_rs_per_kg", 1.0):
+            overrides["kapson_rs_per_kg"] = new_kapson
+    with cols[1]:
+        new_slitter = st.number_input(
+            f"Source → OUR slitter (₹/kg) — {tx['slit_kg']:,.0f} kg",
+            min_value=0.0, max_value=20.0,
+            value=float(overrides.get("slitter_rs_per_kg", 0.0)),
+            step=0.1, key=f"slopt_slt_{lot}",
+            help="Cost to bring slit-bound material from source to OUR "
+                 "slitter. Optional — defaults ₹0 (not previously counted).",
+        )
+        if new_slitter != overrides.get("slitter_rs_per_kg", 0.0):
+            overrides["slitter_rs_per_kg"] = new_slitter
+    # Breakdown table
+    rows = []
+    if tx["kapson_kg"] > 0:
+        rows.append({"leg": "Source → KAPSON",
+                     "kg": f"{tx['kapson_kg']:,.0f}",
+                     "rate_₹/kg": f"{tx['kapson_rate']:.2f}",
+                     "cost_₹": f"{tx['kapson_cost']:,.0f}"})
+    if tx["slit_kg"] > 0:
+        rows.append({"leg": "Source → OUR slitter",
+                     "kg": f"{tx['slit_kg']:,.0f}",
+                     "rate_₹/kg": f"{tx['slit_rate']:.2f}",
+                     "cost_₹": f"{tx['slit_cost_source']:,.0f}"})
+        rows.append({"leg": "Slitter → customers (fixed rates)",
+                     "kg": f"{tx['slit_kg']:,.0f}",
+                     "rate_₹/kg": "varies",
+                     "cost_₹": f"{tx['cust_cost_slitter_to_customer']:,.0f}"})
+    rows.append({"leg": "TOTAL transport",
+                 "kg": f"{r['weight_kg']:,.0f}",
+                 "rate_₹/kg": "—",
+                 "cost_₹": f"{tx['total']:,.0f}"})
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+
+
 def _render_customer_fulfillment(records_summary, orders):
     if not records_summary:
         return
@@ -526,7 +637,9 @@ def _results_section(orders, customer_flags):
     if not records:
         return
     feasible = [r for r in records if r["feasible"]]
-    enriched = [_enrich_record(r, orders) for r in feasible]
+    overrides_all = st.session_state.slopt_transport_overrides
+    enriched = [_enrich_record(r, orders, overrides_all.get(r["lot"]))
+                for r in feasible]
     bidable = [r for r in enriched if r["bidable"]]
     skip = [r for r in enriched if not r["bidable"]]
 
@@ -542,14 +655,17 @@ def _results_section(orders, customer_flags):
         for r in sorted(bidable, key=lambda x: -x["profit_primary"]):
             _render_lot_card(r)
             with st.expander(f"Details — Lot {r['lot']}"):
-                t1, t2, t3 = st.tabs(["P&L by tier", "Cut plan",
-                                       "Customer split"])
+                t1, t2, t3, t4 = st.tabs(["P&L by tier", "Cut plan",
+                                          "Customer split",
+                                          "Adjust transport ↻"])
                 with t1:
                     _render_pnl_table(r)
                 with t2:
                     _render_cut_plan(r)
                 with t3:
                     _render_customer_split(r)
+                with t4:
+                    _render_transport_override(r)
 
     if skip:
         with st.expander(f"Lots to skip — {len(skip)}", expanded=False):
