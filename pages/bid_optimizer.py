@@ -68,6 +68,13 @@ def _init_state() -> None:
         # doesn't see transport — only the bid ceiling depends on it, so
         # this is a pure display-layer recompute (no re-solve).
         "slopt_transport_overrides": {},
+        # Per-coil quality factor (0.0-1.0; 1.0 = perfect). User edits the
+        # per-coil table inside each lot's "Adjust quality" tab to discount
+        # rusty / aged / damaged coils. Affects the bid CEILING only via
+        # adjusted revenue — cut plan stays the same. Shape:
+        #   { lot_id: {coil_id: {"year": int|None,
+        #                        "quality": float}} }
+        "slopt_coil_quality": {},
     }
     for k, v in defaults.items():
         st.session_state.setdefault(k, v)
@@ -222,18 +229,45 @@ def _compute_transport(rec, orders, override: dict | None) -> dict:
     }
 
 
-def _enrich_record(rec, orders, transport_override: dict | None = None) -> dict:
+def _adjusted_revenue(rec, coil_quality: dict | None) -> tuple[float, bool]:
+    """Apply per-coil quality factors to the solved lot's total revenue.
+
+    Each coil contributes proportionally to its weight; quality ∈ [0,1]
+    scales that contribution. Returns (effective_revenue, any_haircut).
+    If no quality overrides exist or all are 1.0, returns the unmodified
+    revenue (and any_haircut=False)."""
+    base_rev = rec["metrics"]["total_rev"]
+    total_kg = rec["metrics"]["total_wt"]
+    if not coil_quality or total_kg <= 0:
+        return base_rev, False
+    adjusted = 0.0
+    any_haircut = False
+    for c in rec["coils"]:
+        kg = c["weight_g"] / 1000
+        share = base_rev * (kg / total_kg)
+        q = float(coil_quality.get(c["id"], {}).get("quality", 1.0))
+        if q < 1.0:
+            any_haircut = True
+        adjusted += q * share
+    return adjusted, any_haircut
+
+
+def _enrich_record(rec, orders, transport_override: dict | None = None,
+                   coil_quality: dict | None = None) -> dict:
     """Compute tier bids, transport, headroom, customer split. Returns a flat dict
     of UI-ready fields keyed off the lot record. Idempotent — safe to re-call.
 
     `transport_override` is the per-lot dict (kapson_rs_per_kg, slitter_rs_per_kg);
-    None falls back to defaults (₹1/kg KAPSON, ₹0 slitter)."""
+    None falls back to defaults (₹1/kg KAPSON, ₹0 slitter).
+    `coil_quality` is a {coil_id: {year, quality}} dict for this lot; default
+    is all coils at 100%."""
     if not rec["feasible"]:
         return {"feasible": False, "lot": rec["lot"], "status": rec["status"]}
     m = rec["metrics"]
     coils = rec["coils"]
     weight = m["total_wt"]
-    revenue = m["total_rev"]
+    base_revenue = m["total_rev"]
+    revenue, quality_applied = _adjusted_revenue(rec, coil_quality)
     slit_cost = rec.get("slit_cost_rs", 0.0)
     start = coils[0]["price_per_kg"] if coils else 0.0
     tx = _compute_transport(rec, orders, transport_override)
@@ -256,7 +290,9 @@ def _enrich_record(rec, orders, transport_override: dict | None = None) -> dict:
     return {
         "feasible": True, "lot": rec["lot"], "weight_kg": weight,
         "n_coils": len(coils), "start": start, "coatings": coatings,
-        "revenue": revenue, "slit_cost": slit_cost, "transport": transport,
+        "revenue": revenue, "base_revenue": base_revenue,
+        "quality_applied": quality_applied,
+        "slit_cost": slit_cost, "transport": transport,
         "transport_breakdown": tx,
         "tiers": bids, "primary_name": primary_name,
         "primary_bid": primary_bid, "bidable": bidable,
@@ -421,6 +457,77 @@ def _render_customer_split(r):
              "share": f"{100*kg/r['weight_kg']:.1f}%"}
             for cust, kg in sorted(r["by_cust"].items(), key=lambda x: -x[1])]
     st.dataframe(rows, use_container_width=True, hide_index=True)
+
+
+def _render_quality_override(r):
+    """Per-coil quality editor. Default 100% per coil; user discounts
+    individual coils for rust / dent / age. Effective revenue scales
+    proportionally and tier ceilings refresh. Year column is informational."""
+    lot = r["lot"]
+    coils = r["coils"]
+    state = st.session_state.slopt_coil_quality.setdefault(lot, {})
+
+    st.caption(
+        "Discount individual coils for visible quality issues (rust, dent) "
+        "or age. Quality defaults to 100%. Year is optional reference. "
+        "Bid ceilings above refresh live. The cut plan is unchanged."
+    )
+
+    # Build rows from current state
+    rows = []
+    for c in coils:
+        cid = c["id"]
+        entry = state.get(cid, {})
+        rows.append({
+            "coil_id": cid,
+            "batch": c["batch"],
+            "width_mm": c["width_cdmm"] / eng.WIDTH_SCALE,
+            "weight_kg": round(c["weight_g"] / 1000, 1),
+            "grade": c["grade"],
+            "coating": c["coating"],
+            "year": entry.get("year"),
+            "quality_%": float(entry.get("quality", 1.0)) * 100,
+        })
+
+    edited = st.data_editor(
+        rows,
+        column_config={
+            "coil_id": None,   # hidden
+            "batch": st.column_config.TextColumn("batch", disabled=True),
+            "width_mm": st.column_config.NumberColumn("width (mm)",
+                                                     disabled=True),
+            "weight_kg": st.column_config.NumberColumn("weight (kg)",
+                                                      disabled=True),
+            "grade": st.column_config.TextColumn("grade", disabled=True),
+            "coating": st.column_config.TextColumn("coating", disabled=True),
+            "year": st.column_config.NumberColumn(
+                "year (opt)", min_value=2015, max_value=2030,
+                step=1, format="%d",
+                help="Optional reference for the user. Doesn't auto-adjust "
+                     "quality — set the quality column manually.",
+            ),
+            "quality_%": st.column_config.NumberColumn(
+                "quality %", min_value=0.0, max_value=100.0, step=1.0,
+                format="%.1f",
+                help="Per-coil quality multiplier (0–100%). 100% = perfect. "
+                     "Lowering this scales the coil's revenue contribution "
+                     "and lowers all bid tiers proportionally.",
+            ),
+        },
+        hide_index=True,
+        use_container_width=True,
+        key=f"slopt_quality_{lot}",
+    )
+
+    # Persist edits back to session_state.
+    for row in edited:
+        cid = row["coil_id"]
+        q = float(row.get("quality_%") or 100) / 100
+        y = row.get("year")
+        prev = state.get(cid, {})
+        if q != prev.get("quality", 1.0) or y != prev.get("year"):
+            state[cid] = {"quality": q,
+                          "year": int(y) if y is not None else None}
 
 
 def _render_transport_override(r):
@@ -638,7 +745,10 @@ def _results_section(orders, customer_flags):
         return
     feasible = [r for r in records if r["feasible"]]
     overrides_all = st.session_state.slopt_transport_overrides
-    enriched = [_enrich_record(r, orders, overrides_all.get(r["lot"]))
+    quality_all = st.session_state.slopt_coil_quality
+    enriched = [_enrich_record(r, orders,
+                               overrides_all.get(r["lot"]),
+                               quality_all.get(r["lot"]))
                 for r in feasible]
     bidable = [r for r in enriched if r["bidable"]]
     skip = [r for r in enriched if not r["bidable"]]
@@ -655,9 +765,10 @@ def _results_section(orders, customer_flags):
         for r in sorted(bidable, key=lambda x: -x["profit_primary"]):
             _render_lot_card(r)
             with st.expander(f"Details — Lot {r['lot']}"):
-                t1, t2, t3, t4 = st.tabs(["P&L by tier", "Cut plan",
-                                          "Customer split",
-                                          "Adjust transport ↻"])
+                t1, t2, t3, t4, t5 = st.tabs(["P&L by tier", "Cut plan",
+                                              "Customer split",
+                                              "Adjust transport ↻",
+                                              "Adjust quality ↻"])
                 with t1:
                     _render_pnl_table(r)
                 with t2:
@@ -666,6 +777,8 @@ def _results_section(orders, customer_flags):
                     _render_customer_split(r)
                 with t4:
                     _render_transport_override(r)
+                with t5:
+                    _render_quality_override(r)
 
     if skip:
         with st.expander(f"Lots to skip — {len(skip)}", expanded=False):
