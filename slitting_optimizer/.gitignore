@@ -1,0 +1,29 @@
+# business data & runtime state — most of data/ is git-ignored.
+# REAL customer rates are SECRET and must never be committed (repo is public);
+# they live in Google Sheets. Only the SANITIZED fake fixture + sample auction
+# lists (public auction data) are tracked for tests/dev.
+data/*
+!data/.gitkeep
+!data/sample_customers_fixture.xlsx
+!data/sample_auction_lists/
+# never commit a real customer workbook, whatever it's named
+sample_customers_v*.xlsx
+*customers*real*.xlsx
+data/measurement_reports/
+data/sessions/
+data/_tmp_*/
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# env / secrets
+.env
+.venv/
+env/
+
+# os
+.DS_Store

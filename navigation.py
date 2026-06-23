@@ -16,7 +16,7 @@ def select_page() -> str:
         
         page = st.radio(
             "Navigation",
-            ("🏠 Home", "📋 Process Map", "📝 Data Entry", "✂️ Slitting Plan", "📄 PDF Generator", "⚙️ Automation Workflows", "📊 Forms"),
+            ("🏠 Home", "📋 Process Map", "📝 Data Entry", "✂️ Slitting Plan", "🎯 Bid Optimizer", "📄 PDF Generator", "⚙️ Automation Workflows", "📊 Forms"),
             label_visibility="hidden"
         )
 
