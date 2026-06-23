@@ -460,9 +460,14 @@ def _render_customer_split(r):
 
 
 def _render_quality_override(r):
-    """Per-coil quality editor. Default 100% per coil; user discounts
-    individual coils for rust / dent / age. Effective revenue scales
-    proportionally and tier ceilings refresh. Year column is informational."""
+    """Per-coil quality editor using plain number_input widgets inside a form.
+
+    Each coil gets a row with read-only info (batch, width, weight, grade,
+    coating) and two editable inputs (year, quality %). Clicking "Apply
+    Quality" commits all edits atomically and reruns so tier ceilings refresh.
+
+    Uses number_input instead of data_editor for deterministic, lag-free
+    behavior inside st.form."""
     lot = r["lot"]
     coils = r["coils"]
     state = st.session_state.slopt_coil_quality.setdefault(lot, {})
@@ -470,102 +475,101 @@ def _render_quality_override(r):
     st.caption(
         "Discount individual coils for visible quality issues (rust, dent) "
         "or age. Quality defaults to 100%. Year is optional reference. "
-        "Bid ceilings above refresh live. The cut plan is unchanged."
+        "Click \"Apply Quality\" to refresh bid ceilings. The cut plan is unchanged."
     )
 
-    # Build rows from current state
-    rows = []
-    for c in coils:
-        cid = c["id"]
-        entry = state.get(cid, {})
-        rows.append({
-            "coil_id": cid,
-            "batch": c["batch"],
-            "width_mm": c["width_cdmm"] / eng.WIDTH_SCALE,
-            "weight_kg": round(c["weight_g"] / 1000, 1),
-            "grade": c["grade"],
-            "coating": c["coating"],
-            "year": entry.get("year"),
-            "quality_%": float(entry.get("quality", 1.0)) * 100,
-        })
+    with st.form(key=f"quality_form_{lot}"):
+        # Header row
+        hdr = st.columns([2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2])
+        for col, label in zip(hdr, ["Batch", "Width", "Weight", "Grade",
+                                     "Coating", "Year", "Quality %"]):
+            col.markdown(f"**{label}**")
 
-    edited = st.data_editor(
-        rows,
-        column_config={
-            "coil_id": None,   # hidden
-            "batch": st.column_config.TextColumn("batch", disabled=True),
-            "width_mm": st.column_config.NumberColumn("width (mm)",
-                                                     disabled=True),
-            "weight_kg": st.column_config.NumberColumn("weight (kg)",
-                                                      disabled=True),
-            "grade": st.column_config.TextColumn("grade", disabled=True),
-            "coating": st.column_config.TextColumn("coating", disabled=True),
-            "year": st.column_config.NumberColumn(
-                "year (opt)", min_value=2015, max_value=2030,
-                step=1, format="%d",
-                help="Optional reference for the user. Doesn't auto-adjust "
-                     "quality — set the quality column manually.",
-            ),
-            "quality_%": st.column_config.NumberColumn(
-                "quality %", min_value=0.0, max_value=100.0, step=1.0,
-                format="%.1f",
-                help="Per-coil quality multiplier (0–100%). 100% = perfect. "
-                     "Lowering this scales the coil's revenue contribution "
-                     "and lowers all bid tiers proportionally.",
-            ),
-        },
-        hide_index=True,
-        use_container_width=True,
-        key=f"slopt_quality_{lot}",
-    )
+        # Collect widget return values keyed by coil id
+        form_values: list[tuple[str, float, int | None]] = []
 
-    # Persist edits back to session_state.
-    for row in edited:
-        cid = row["coil_id"]
-        q = float(row.get("quality_%") or 100) / 100
-        y = row.get("year")
-        prev = state.get(cid, {})
-        if q != prev.get("quality", 1.0) or y != prev.get("year"):
-            state[cid] = {"quality": q,
-                          "year": int(y) if y is not None else None}
+        for i, c in enumerate(coils):
+            cid = c["id"]
+            entry = state.get(cid, {})
+            cur_quality = float(entry.get("quality", 1.0)) * 100
+            cur_year = entry.get("year")
+
+            cols = st.columns([2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2])
+            cols[0].text(c["batch"])
+            cols[1].text(f"{c['width_cdmm'] / eng.WIDTH_SCALE:g}")
+            cols[2].text(f"{c['weight_g'] / 1000:.1f}")
+            cols[3].text(c["grade"])
+            cols[4].text(c["coating"])
+            year_val = cols[5].number_input(
+                "Year", min_value=2015, max_value=2030, step=1,
+                value=cur_year if cur_year is not None else 2025,
+                label_visibility="collapsed",
+                key=f"q_year_{lot}_{i}",
+            )
+            quality_val = cols[6].number_input(
+                "Quality", min_value=0.0, max_value=100.0, step=1.0,
+                value=cur_quality, format="%.1f",
+                label_visibility="collapsed",
+                key=f"q_pct_{lot}_{i}",
+            )
+            form_values.append((cid, quality_val, year_val))
+
+        submitted = st.form_submit_button("Apply Quality", type="primary")
+
+    # Commit only on explicit submit, then rerun so _enrich_record picks up
+    # the new quality values on the next render pass.
+    if submitted:
+        for cid, quality_pct, year_val in form_values:
+            state[cid] = {"quality": quality_pct / 100,
+                          "year": int(year_val) if year_val is not None else None}
+        st.rerun()
 
 
 def _render_transport_override(r):
-    """Per-lot transport-override inputs. Changing either value reruns the
-    page, _enrich_record recomputes transport, and the tier ceilings refresh
-    above. The cut plan is unchanged (optimizer never saw transport)."""
+    """Per-lot transport-override inputs. Wrapped in st.form so that
+    value= and key= don't fight each other across reruns. Edits are
+    batched and committed atomically on submit.
+
+    The cut plan is unchanged (optimizer never saw transport)."""
     lot = r["lot"]
     tx = r["transport_breakdown"]
     overrides = st.session_state.slopt_transport_overrides.setdefault(lot, {})
     st.caption(
-        "Override the source-side transport for this lot below — the bid "
-        "ceilings above refresh live. The cut plan is unchanged. Per-customer "
-        "slitter→customer rates stay fixed (they don't depend on source)."
+        "Override the source-side transport for this lot below and click "
+        "\"Apply Transport\" to refresh bid ceilings. The cut plan is unchanged. "
+        "Per-customer slitter→customer rates stay fixed (they don't depend on source)."
     )
-    cols = st.columns(2)
-    with cols[0]:
-        new_kapson = st.number_input(
-            f"Source → KAPSON (₹/kg) — {tx['kapson_kg']:,.0f} kg",
-            min_value=0.0, max_value=20.0,
-            value=float(overrides.get("kapson_rs_per_kg", 1.0)),
-            step=0.1, key=f"slopt_kap_{lot}",
-            help="Direct ship cost from this lot's source location to KAPSON. "
-                 "Default ₹1/kg (Pune-near baseline).",
-        )
-        if new_kapson != overrides.get("kapson_rs_per_kg", 1.0):
-            overrides["kapson_rs_per_kg"] = new_kapson
-    with cols[1]:
-        new_slitter = st.number_input(
-            f"Source → OUR slitter (₹/kg) — {tx['slit_kg']:,.0f} kg",
-            min_value=0.0, max_value=20.0,
-            value=float(overrides.get("slitter_rs_per_kg", 0.0)),
-            step=0.1, key=f"slopt_slt_{lot}",
-            help="Cost to bring slit-bound material from source to OUR "
-                 "slitter. Optional — defaults ₹0 (not previously counted).",
-        )
-        if new_slitter != overrides.get("slitter_rs_per_kg", 0.0):
-            overrides["slitter_rs_per_kg"] = new_slitter
-    # Breakdown table
+    with st.form(key=f"transport_form_{lot}"):
+        cols = st.columns(2)
+        with cols[0]:
+            new_kapson = st.number_input(
+                f"Source → KAPSON (₹/kg) — {tx['kapson_kg']:,.0f} kg",
+                min_value=0.0, max_value=20.0,
+                value=float(overrides.get("kapson_rs_per_kg", 1.0)),
+                step=0.1,
+                help="Direct ship cost from this lot's source location to KAPSON. "
+                     "Default ₹1/kg (Pune-near baseline).",
+            )
+        with cols[1]:
+            new_slitter = st.number_input(
+                f"Source → OUR slitter (₹/kg) — {tx['slit_kg']:,.0f} kg",
+                min_value=0.0, max_value=20.0,
+                value=float(overrides.get("slitter_rs_per_kg", 0.0)),
+                step=0.1,
+                help="Cost to bring slit-bound material from source to OUR "
+                     "slitter. Optional — defaults ₹0 (not previously counted).",
+            )
+        submitted = st.form_submit_button("Apply Transport", type="primary")
+
+    # Commit overrides only on explicit submit — no per-keystroke rerun, no desync.
+    # Rerun so _enrich_record (which already ran earlier this pass) picks up
+    # the new transport values on the next render.
+    if submitted:
+        overrides["kapson_rs_per_kg"] = new_kapson
+        overrides["slitter_rs_per_kg"] = new_slitter
+        st.rerun()
+
+    # Breakdown table (always shown, reflects last-committed values)
     rows = []
     if tx["kapson_kg"] > 0:
         rows.append({"leg": "Source → KAPSON",
