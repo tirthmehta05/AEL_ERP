@@ -1,9 +1,14 @@
-# business data & runtime state — most of data/ is git-ignored,
-# but commit the small test fixtures the validate suite + UI tests need.
+# business data & runtime state — most of data/ is git-ignored.
+# REAL customer rates are SECRET and must never be committed (repo is public);
+# they live in Google Sheets. Only the SANITIZED fake fixture + sample auction
+# lists (public auction data) are tracked for tests/dev.
 data/*
 !data/.gitkeep
-!data/sample_customers_v3.xlsx
+!data/sample_customers_fixture.xlsx
 !data/sample_auction_lists/
+# never commit a real customer workbook, whatever it's named
+sample_customers_v*.xlsx
+*customers*real*.xlsx
 data/measurement_reports/
 data/sessions/
 data/_tmp_*/

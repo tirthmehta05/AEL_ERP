@@ -88,8 +88,23 @@ def _parse_width(v):
 
 
 def parse_customers(path) -> tuple[list[dict], list[str]]:
-    """Return (orders, flags). Orders carry sequential ids across all tabs."""
+    """Return (orders, flags) from an .xlsx workbook path.
+
+    Thin wrapper: reads every tab into a {tab_name: DataFrame} dict and
+    delegates to parse_customer_frames. Kept for the CLI / tests / any
+    file-based flow. The ERP page reads from Google Sheets instead (so the
+    secret customer data never lives in the repo) and calls
+    parse_customer_frames directly — see pages/bid_optimizer.py."""
     sheets = pd.read_excel(path, sheet_name=None)
+    return parse_customer_frames(sheets)
+
+
+def parse_customer_frames(sheets: dict) -> tuple[list[dict], list[str]]:
+    """Return (orders, flags) from a {tab_name: DataFrame} mapping.
+
+    Source-agnostic core: works identically whether the frames came from an
+    .xlsx (pd.read_excel) or from Google Sheets. One tab per customer; each
+    row is one spec line. Orders carry sequential ids across all tabs."""
     orders: list[dict] = []
     flags: list[str] = []
     oid = 0

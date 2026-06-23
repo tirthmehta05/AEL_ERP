@@ -10,6 +10,10 @@ class APISettings(BaseModel):
     google_sheets_id: Optional[str] = Field(default=None)
     weighing_scale_url: Optional[str] = Field(default=None)
     weighing_scale_crane_url: Optional[str] = Field(default=None)
+    # Bid Optimizer customer-rate workbook hosted on Google Sheets (one tab
+    # per customer). Kept OUT of the repo — the repo is public. Set in
+    # .streamlit/secrets.toml (local) and the Streamlit Cloud app secrets.
+    bid_optimizer_customer_sheet_id: Optional[str] = Field(default=None)
 
 class PowerAutomateSettings(BaseModel):
     pa_client_id: Optional[str] = Field(default=None)

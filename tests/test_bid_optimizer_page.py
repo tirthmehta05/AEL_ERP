@@ -32,7 +32,9 @@ from app.repository import customer_repository as cr  # noqa: E402
 from tools import measurement_report as mr         # noqa: E402
 
 _SLOPT = Path(__file__).resolve().parent.parent / "slitting_optimizer"
-_CUSTOMERS = _SLOPT / "data" / "sample_customers_v3.xlsx"
+# Sanitized FAKE-data fixture — the real customer rates live only in Google
+# Sheets (repo is public). Tests assert structure/logic, never specific rates.
+_CUSTOMERS = _SLOPT / "data" / "sample_customers_fixture.xlsx"
 _MI_PUNE = _SLOPT / "data" / "sample_auction_lists" / "CRNO 27.05.2026 MI PUNE.xlsx"
 
 
@@ -46,7 +48,9 @@ def orders_and_flags():
 
 @pytest.fixture(scope="module")
 def solved_mi_pune(orders_and_flags):
-    """Solve the small MI Pune auction once per test module (~2s)."""
+    """Solve the small MI Pune auction once per test module (~2s) against the
+    sanitized fake customer book. Exact allocations/bidability depend on the
+    fake rates, so tests below assert STRUCTURE, not specific outcomes."""
     if not _MI_PUNE.exists():
         pytest.skip(f"auction fixture not found at {_MI_PUNE}")
     orders, _ = orders_and_flags
@@ -64,10 +68,9 @@ def solved_mi_pune(orders_and_flags):
 def test_enrich_record_produces_required_ui_fields(solved_mi_pune, orders_and_flags):
     records, _ = solved_mi_pune
     orders, _ = orders_and_flags
-    # Find the bidable MI Pune lot (279263).
-    target = next((r for r in records if r["feasible"] and r["lot"] == "279263"),
-                  None)
-    assert target is not None, "Lot 279263 must solve feasibly"
+    # Any feasible lot exercises the full enrichment path.
+    target = next((r for r in records if r["feasible"]), None)
+    assert target is not None, "at least one lot must solve feasibly"
 
     enriched = bo._enrich_record(target, orders)
     # Required UI keys
@@ -145,16 +148,48 @@ def test_kapson_dominant_lot_flagged_single_buyer(solved_mi_pune, orders_and_fla
                 f"lot {enriched['lot']} should flag single-buyer risk")
 
 
-def test_render_helpers_handle_skip_lots(solved_mi_pune, orders_and_flags):
-    """Render functions on a SKIP lot (no customer allocation) must not crash."""
+def test_render_helpers_handle_all_lots(solved_mi_pune, orders_and_flags):
+    """Render/enrich helpers must not crash on ANY feasible lot, whether it
+    has rich customer allocation or none (a SKIP lot)."""
     records, _ = solved_mi_pune
     orders, _ = orders_and_flags
-    # 279264 is a SKIP lot (parser flagged no coatings)
-    skip = next((r for r in records if r["feasible"] and r["lot"] == "279264"),
-                None)
-    if skip is None:
-        pytest.skip("expected SKIP lot 279264 not present in fixture")
-    enriched = bo._enrich_record(skip, orders)
-    assert enriched["bidable"] is False
-    # These all return strings or None; just ensure no exception.
-    bo._render_risk_flags(enriched)
+    feasible = [r for r in records if r["feasible"]]
+    assert feasible, "fixture should yield at least one feasible lot"
+    for r in feasible:
+        enriched = bo._enrich_record(r, orders)
+        assert isinstance(enriched["bidable"], bool)
+        # returns an HTML string (possibly empty) — must not raise
+        assert isinstance(bo._render_risk_flags(enriched), str)
+
+
+def test_quality_haircut_lowers_revenue(solved_mi_pune, orders_and_flags):
+    """Applying a per-coil quality < 100% must lower effective revenue and
+    therefore every tier bid, vs the same lot at 100% quality."""
+    records, _ = solved_mi_pune
+    orders, _ = orders_and_flags
+    target = next((r for r in records if r["feasible"] and r["coils"]), None)
+    assert target is not None
+    base = bo._enrich_record(target, orders)
+    # Haircut the first coil to 50%.
+    cid = target["coils"][0]["id"]
+    quality = {cid: {"quality": 0.5, "year": None}}
+    cut = bo._enrich_record(target, orders, coil_quality=quality)
+    assert cut["revenue"] <= base["revenue"], "quality<100% must not raise revenue"
+    # If that coil carried revenue, the safe-tier bid should drop.
+    if cut["revenue"] < base["revenue"]:
+        assert cut["tiers"][0][2] < base["tiers"][0][2], (
+            "lower revenue must lower the safe-tier bid")
+
+
+def test_transport_override_lowers_bid(solved_mi_pune, orders_and_flags):
+    """Raising the source→KAPSON transport rate must not raise any tier bid."""
+    records, _ = solved_mi_pune
+    orders, _ = orders_and_flags
+    target = next((r for r in records if r["feasible"]), None)
+    assert target is not None
+    base = bo._enrich_record(target, orders,
+                             transport_override={"kapson_rs_per_kg": 1.0})
+    pricier = bo._enrich_record(target, orders,
+                                transport_override={"kapson_rs_per_kg": 5.0})
+    assert pricier["tiers"][0][2] <= base["tiers"][0][2], (
+        "higher transport must not raise the safe-tier bid")

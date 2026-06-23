@@ -171,6 +171,38 @@ class GoogleDriveService:
                 raise
             return pd.DataFrame()
 
+    def get_all_worksheets_data(
+        self, spreadsheet_id: str, header_row: int = 1,
+    ) -> dict:
+        """Read EVERY worksheet (tab) in a spreadsheet into a
+        {tab_name: DataFrame} mapping — the same shape pandas returns from
+        pd.read_excel(path, sheet_name=None).
+
+        Empty cells are coerced to NaN so downstream parsers that test for
+        blank rows via pd.isna() behave the same as with an .xlsx source.
+        Always raises on a read failure: a caller using this for pricing
+        data must NOT silently proceed on a partial/empty read.
+        """
+        if not self.client:
+            raise Exception("Google Drive client not initialized")
+        spreadsheet = self._execute_with_retry(self.client.open_by_key,
+                                               spreadsheet_id)
+        worksheets = self._execute_with_retry(spreadsheet.worksheets)
+        out: dict = {}
+        for ws in worksheets:
+            all_values = self._execute_with_retry(ws.get_all_values)
+            if len(all_values) < header_row:
+                out[ws.title] = pd.DataFrame()
+                continue
+            headers = all_values[header_row - 1]
+            data = all_values[header_row:]
+            df = pd.DataFrame(data, columns=headers)
+            df = df.loc[:, [c for c in df.columns if c.strip()]]
+            # blank string → NaN so pd.isna()-based blank-row checks work
+            df = df.replace("", pd.NA)
+            out[ws.title] = df
+        return out
+
     def get_dropdown_options(
         self, spreadsheet_id: str, worksheet_name: str, column_name: str
     ) -> List[str]:

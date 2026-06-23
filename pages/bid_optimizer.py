@@ -33,12 +33,19 @@ from engine import incremental as inc                       # noqa: E402
 from engine import optimizer as eng                         # noqa: E402
 from engine.bid_tiers import bid_for_net_margin, get_bid_tiers  # noqa: E402
 from app.repository import auction_repository as ar         # noqa: E402
+from app.repository import customer_repository as cr        # noqa: E402
 from tools import measurement_report as mr                  # noqa: E402
+
+from config import settings                                 # noqa: E402
 
 logger = setup_logger(__name__)
 
 _LOCK_S = 30                                                # double-submit window
-_CUSTOMERS_PATH = _SLOPT_ROOT / "data" / "sample_customers_v3.xlsx"
+# Customer rates are SECRET business data and must never live in the (public)
+# repo. Prod reads them from a Google Sheet (one tab per customer) whose ID is
+# configured in secrets. The local sanitized fixture below is FAKE data, used
+# only for dev/tests when no Sheet ID is configured.
+_FALLBACK_FIXTURE = _SLOPT_ROOT / "data" / "sample_customers_fixture.xlsx"
 
 # Tier visual styling — colored left-edge + chip backgrounds. Keep in sync
 # with the design system documented in the page-level CSS below.
@@ -806,8 +813,29 @@ def render() -> None:
         "width-banded slitting (12 narrow / 19 wide), and transport-aware "
         "tiers are all live.")
 
-    # Parse customer workbook once per session (cached factory below).
-    orders, customer_flags = _load_orders()
+    # Load customer rates. Prod → Google Sheet (secret data, never in repo).
+    # Dev with no Sheet configured → sanitized FAKE fixture.
+    try:
+        orders, customer_flags, source = _load_orders()
+    except Exception as e:
+        logger.exception("customer rate load failed")
+        st.error(
+            f"Could not load customer rates from Google Sheets: {e}\n\n"
+            "Bidding is disabled until this is fixed — the optimizer must "
+            "not run on missing/partial rate data. Check the sheet ID in "
+            "secrets (`api.bid_optimizer_customer_sheet_id`) and that the "
+            "sheet is shared with the service account.")
+        return
+
+    if source == "fixture":
+        st.warning(
+            "⚠️ DEV MODE — using the **sanitized sample fixture** (fake "
+            "rates). No customer Sheet is configured "
+            "(`api.bid_optimizer_customer_sheet_id`). Bids here are NOT real.",
+            icon="⚠️")
+    else:
+        st.caption(f"Customer rates: Google Sheets · {len(orders)} orders "
+                   f"across {len({o['customer'] for o in orders})} customers")
 
     _upload_section()
     if st.session_state.slopt_auction_bytes is not None:
@@ -816,12 +844,41 @@ def render() -> None:
         _results_section(orders, customer_flags)
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner="Loading customer rates…")
 def _load_orders():
-    """Parse the bundled customer workbook. Cached so we don't re-parse on
-    every rerun. Returns (orders, flags)."""
-    from app.repository import customer_repository as cr
-    orders, flags = cr.parse_customers(str(_CUSTOMERS_PATH))
-    if flags:
-        logger.info("customer parse flags: %d", len(flags))
-    return orders, flags
+    """Load customer rates and return (orders, flags, source).
+
+    Priority:
+      1. Google Sheet (api.bid_optimizer_customer_sheet_id) — the real, secret
+         rates. If the ID is set but the read/parse fails, RAISE — we must not
+         silently fall back to fake data in production.
+      2. Sanitized local fixture (FAKE data) — only when NO Sheet ID is set,
+         i.e. local dev. source == "fixture".
+
+    Cached so we don't re-read the Sheet on every rerun.
+    """
+    sheet_id = getattr(settings.api, "bid_optimizer_customer_sheet_id", None)
+    if sheet_id:
+        from src.shared.integrations.google_drive_service import (
+            GoogleDriveService,
+        )
+        svc = GoogleDriveService()
+        frames = svc.get_all_worksheets_data(sheet_id)
+        orders, flags = cr.parse_customer_frames(frames)
+        if not orders:
+            raise ValueError(
+                "Sheet read returned zero valid customer orders — check the "
+                "tab layout (header row + Width/Rate/Grades/Coatings columns).")
+        logger.info("loaded %d customer orders from Google Sheet (%d flags)",
+                    len(orders), len(flags))
+        return orders, flags, "sheet"
+
+    # No Sheet configured → dev fixture (fake data).
+    if not _FALLBACK_FIXTURE.exists():
+        raise FileNotFoundError(
+            "No customer Sheet configured and no local fixture present at "
+            f"{_FALLBACK_FIXTURE}.")
+    orders, flags = cr.parse_customers(str(_FALLBACK_FIXTURE))
+    logger.info("loaded %d customer orders from local fixture (%d flags)",
+                len(orders), len(flags))
+    return orders, flags, "fixture"
