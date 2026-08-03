@@ -16,8 +16,18 @@ _mock_st = MagicMock()
 _mock_st.secrets.get.return_value = {}
 sys.modules.setdefault("streamlit", _mock_st)
 sys.modules.setdefault("streamlit_msal", MagicMock())
-sys.modules.setdefault("gspread", MagicMock())
-sys.modules.setdefault("gspread.exceptions", MagicMock())
+_mock_gspread = MagicMock()
+_mock_gspread_exceptions = MagicMock()
+# Exception attributes must be real classes, not MagicMocks. `except <mock>`
+# never matches and `side_effect = <mock>` never raises, so code under an
+# `except gspread.exceptions.WorksheetNotFound` branch silently goes untested.
+for _exc_name in ("WorksheetNotFound", "SpreadsheetNotFound", "APIError", "GSpreadException"):
+    _exc_type = type(_exc_name, (Exception,), {})
+    setattr(_mock_gspread_exceptions, _exc_name, _exc_type)
+    setattr(_mock_gspread, _exc_name, _exc_type)
+_mock_gspread.exceptions = _mock_gspread_exceptions
+sys.modules.setdefault("gspread", _mock_gspread)
+sys.modules.setdefault("gspread.exceptions", _mock_gspread_exceptions)
 sys.modules.setdefault("google.auth", MagicMock())
 sys.modules.setdefault("google.oauth2", MagicMock())
 sys.modules.setdefault("google.oauth2.service_account", MagicMock())

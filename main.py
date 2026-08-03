@@ -1,7 +1,7 @@
 import streamlit as st
 from theme import apply_theme
 from navigation import select_page
-from pages import home, process_map, data_entry, automation, slitting_plan, forms, pdf_generator, bid_optimizer
+from pages import home, process_map, data_entry, automation, slitting_plan, forms, pdf_generator, bid_optimizer, performance
 from streamlit_msal import Msal
 from config import settings
 
@@ -36,6 +36,8 @@ def run_app(user_info: dict):
         slitting_plan.render()
     elif page == "🎯 Bid Optimizer":
         bid_optimizer.render()
+    elif page == "👥 Performance":
+        performance.render()
     elif page == "📄 PDF Generator":
         pdf_generator.render_pdf_generator_page()
     elif page == "⚙️ Automation Workflows":

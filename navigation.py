@@ -16,7 +16,7 @@ def select_page() -> str:
         
         page = st.radio(
             "Navigation",
-            ("🏠 Home", "📋 Process Map", "📝 Data Entry", "✂️ Slitting Plan", "🎯 Bid Optimizer", "📄 PDF Generator", "⚙️ Automation Workflows", "📊 Forms"),
+            ("🏠 Home", "📋 Process Map", "📝 Data Entry", "✂️ Slitting Plan", "🎯 Bid Optimizer", "👥 Performance", "📄 PDF Generator", "⚙️ Automation Workflows", "📊 Forms"),
             label_visibility="hidden"
         )
 
@@ -25,7 +25,7 @@ def select_page() -> str:
             active_tab_name = None
 
             # For pages with tabs, find the active tab.
-            if page_key in ['data_entry', 'pdf_generator']:
+            if page_key in ['data_entry', 'pdf_generator', 'performance']:
                 active_tab_key = f'{page_key}_active_tab'  # e.g., 'data_entry_active_tab'
                 active_tab_name = st.session_state.get(active_tab_key)
 
