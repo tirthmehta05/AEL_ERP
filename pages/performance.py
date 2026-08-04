@@ -70,13 +70,18 @@ RENDERERS = {
 def render() -> None:
     render_main_header("Performance")
 
-    active_tab = _select_tab()
+    # Consume the Refresh signal before any read, so the context below is
+    # built from fresh data rather than the cache we are about to drop.
+    restore_tab = _consume_refresh_signal()
 
+    # Context first: in dev mode this renders the identity picker, and what
+    # the tabs show depends on who you are.
     ctx = get_context(period=st.session_state.get("perf_period"))
     if ctx is None:
         return
 
     render_identity_bar(ctx)
+    active_tab = _select_tab(restore_tab)
     st.markdown("---")
 
     renderer = RENDERERS.get(active_tab)
@@ -86,29 +91,29 @@ def render() -> None:
         _render_placeholder(active_tab)
 
 
-def _select_tab() -> str:
-    """Tab picker plus the sidebar Refresh handshake.
+def _consume_refresh_signal() -> str | None:
+    """Handle the sidebar Refresh button.
 
     navigation.py stashes {"page": ..., "tab": ...} in `cache_to_clear`; the
-    page consumes it, drops its caches and restores the tab the user was on.
+    page consumes it, drops its caches and reports which tab to restore.
     """
+    request = st.session_state.get("cache_to_clear")
+    if not request:
+        return None
+    st.session_state.pop("cache_to_clear")
+    clear_caches()
+    st.toast("Performance data refreshed.")
+    return request.get("tab") if isinstance(request, dict) else request
+
+
+def _select_tab(restore_tab: str | None) -> str:
     radio_index = 0
     try:
         radio_index = TABS.index(st.session_state.performance_active_tab)
     except (AttributeError, ValueError):
         pass
-
-    cache_request = st.session_state.get("cache_to_clear")
-    if cache_request:
-        st.session_state.pop("cache_to_clear")
-        requested = (
-            cache_request.get("tab")
-            if isinstance(cache_request, dict) else cache_request
-        )
-        clear_caches()
-        st.toast("Performance data refreshed.")
-        if requested in TABS:
-            radio_index = TABS.index(requested)
+    if restore_tab in TABS:
+        radio_index = TABS.index(restore_tab)
 
     return st.radio(
         "Select view:",

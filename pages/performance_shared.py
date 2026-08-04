@@ -163,31 +163,58 @@ def _dev_mode_identity(
     Lets the whole cascade be exercised locally without twelve Microsoft
     accounts. Never reachable in production — main.py only mocks the user when
     settings.app.dev_mode is set.
+
+    Rendered at the top of the page rather than in the sidebar: the sidebar
+    already ends with a copyright footer, so anything appended below it reads
+    as chrome and gets scrolled past.
     """
     people = chart.all_employees()
     if not people:
         return matched, False
 
-    with st.sidebar:
-        st.markdown("---")
-        st.caption("Dev mode — acting as")
-        options = [e.emp_id for e in people]
-        labels = {
-            e.emp_id: f"{e.name} · {e.level} · depth {chart.depth(e.emp_id)}"
-            for e in people
-        }
-        default = matched.emp_id if matched else options[0]
-        stored = st.session_state.get(IMPERSONATE_KEY, default)
-        index = options.index(stored) if stored in options else 0
-        chosen = st.selectbox(
-            "Acting as",
-            options,
-            index=index,
-            format_func=lambda emp_id: labels.get(emp_id, emp_id),
-            key=IMPERSONATE_KEY,
-            label_visibility="collapsed",
-        )
+    options = [e.emp_id for e in people]
+    labels = {
+        e.emp_id: f"{e.name} — {e.designation or e.level} (depth "
+                  f"{chart.depth(e.emp_id)})"
+        + ("  ·  admin" if chart.is_admin(e.emp_id) else "")
+        + ("  ·  management" if chart.is_management(e.emp_id) else "")
+        for e in people
+    }
+
+    # Default to an admin so the Admin tab is reachable on first open. Landing
+    # as someone who cannot use half the page makes the tool look broken.
+    default = matched.emp_id if matched else _preferred_dev_identity(chart, options)
+    stored = st.session_state.get(IMPERSONATE_KEY, default)
+    index = options.index(stored) if stored in options else options.index(default)
+
+    with st.container(border=True):
+        left, right = st.columns([3, 2])
+        with left:
+            chosen = st.selectbox(
+                "Acting as (dev mode)",
+                options,
+                index=index,
+                format_func=lambda emp_id: labels.get(emp_id, emp_id),
+                key=IMPERSONATE_KEY,
+                help="Dev mode only. Switch identity to exercise the cascade "
+                     "without twelve Microsoft accounts.",
+            )
+        with right:
+            st.caption(
+                "Permissions follow the reporting tree, so what you can see "
+                "and do changes with this. Admin needs an admin; Business "
+                "Needs needs management."
+            )
     return chart.get(chosen), True
+
+
+def _preferred_dev_identity(chart: OrgChart, options: list[str]) -> str:
+    """Pick the most useful starting identity: an admin, else the root."""
+    for emp_id in options:
+        if chart.is_admin(emp_id):
+            return emp_id
+    root = chart.root()
+    return root.emp_id if root else options[0]
 
 
 # --------------------------------------------------------------------------

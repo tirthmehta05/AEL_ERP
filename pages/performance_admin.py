@@ -29,9 +29,14 @@ DEPARTMENTS = ["Executive", "Operations", "Corporate Services", "Strategy & BD"]
 def render(ctx: PerformanceContext) -> None:
     if not ctx.is_admin:
         st.info(
-            "The Admin tab is limited to system administrators. "
-            f"Ask {_admin_names(ctx)} to make a change."
+            f"**{ctx.employee.name}** is not a system administrator, so this "
+            f"tab is read-locked. Administrators: {_admin_names(ctx)}."
         )
+        if ctx.impersonating:
+            st.caption(
+                "You are in dev mode — switch the *Acting as* picker above to "
+                "an admin to use this tab."
+            )
         return
 
     tabs = st.tabs(["Org tree", "Employees", "KPI library", "Cadence"])
