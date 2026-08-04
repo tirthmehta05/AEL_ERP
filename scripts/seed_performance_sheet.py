@@ -207,33 +207,33 @@ def main() -> int:
     for sheet, created in repo.ensure_tabs().items():
         _log(f"  {'ok ' if created else 'FAILED'} {sheet}")
 
-    def seed(label: str, existing: list, write) -> None:
+    def seed(label: str, existing: list, records: list) -> None:
+        """Batch-append a tab's seed rows.
+
+        One append_rows call per tab rather than an upsert per row: Google
+        allows 60 writes per minute, and per-row upserts would spend ~250
+        calls here and spend most of the run in rate-limit backoff.
+        """
         if existing and not args.force:
             _log(f"  skip {label} — {len(existing)} rows already present")
             return
-        write()
-        _log(f"  ok   {label}")
+        repo._append(records)
+        _log(f"  ok   {label} — {len(records)} rows")
 
     _log("\nSeeding reference data...")
     try:
-        seed("Parameters", list(repo.get_parameters().items()),
-             lambda: [repo.save_parameter(p.key, p.value, p.description)
-                      for p in build_parameters()])
-        seed("Levels", repo.get_levels(),
-             lambda: [repo._upsert(lvl) for lvl in build_levels()])
-        seed("Employees", repo.get_employees(),
-             lambda: [repo.save_employee(emp)
-                      for emp in build_employees(args.admin_email)])
-        seed("Roles", repo.get_roles(),
-             lambda: [repo._upsert(role) for role in build_roles()])
-        seed("KPILibrary", repo.get_kpi_library(active_only=False),
-             lambda: [repo.save_kpi_library_entry(e) for e in build_kpi_library()])
+        seed("Parameters", list(repo.get_parameters().items()), build_parameters())
+        seed("Levels", repo.get_levels(), build_levels())
+        seed("Employees", repo.get_employees(), build_employees(args.admin_email))
+        seed("Roles", repo.get_roles(), build_roles())
+        seed("KPILibrary", repo.get_kpi_library(active_only=False), build_kpi_library())
 
         if args.baseline_period:
-            needs = build_kbd_baseline(args.baseline_period, ADMIN_EMP_ID)
-            seed(f"BusinessNeeds ({args.baseline_period})",
-                 repo.get_business_needs(args.baseline_period),
-                 lambda: repo.save_business_needs(needs))
+            seed(
+                f"BusinessNeeds ({args.baseline_period})",
+                repo.get_business_needs(args.baseline_period),
+                build_kbd_baseline(args.baseline_period, ADMIN_EMP_ID),
+            )
     except PerformanceRepositoryError as exc:
         _log(f"\nERROR: {exc}")
         return 1

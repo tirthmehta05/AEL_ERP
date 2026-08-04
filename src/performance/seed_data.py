@@ -39,13 +39,45 @@ PARAMETERS: list[tuple[str, str, str]] = [
     ("pillar.knowledge", "0.20", "Knowledge weight"),
     ("pillar.behaviour", "0.10", "Behaviour weight"),
     ("pillar.discipline", "0.10", "Discipline weight"),
-    # -- scoring rules
+    # -- scoring rules (Monthly Scoring!AC5 and !AM5)
     ("score.achievement_cap", "120", "Max % credit for a single KPI"),
     ("score.pillar_floor_rating", "2",
      "K/B/D rolled-up rating below this caps the monthly score"),
     ("score.pillar_floor_cap", "70", "Cap applied when the pillar floor trips"),
     ("score.min_remark_chars", "100",
      "Minimum characters for a scoring remark"),
+
+    # -- incentive model, transcribed from Performance Master "Parameters".
+    # Cell references are given so any divergence can be checked directly.
+    # Curves are piecewise-linear: interpolate between points, clamp at the
+    # top, and pay nothing below the gate.
+    ("macro.cpi", "0.055", "CPI for FY26-27, the increment floor (B5)"),
+    ("curve.pat_x", "0,0.7,0.85,1,1.15,2",
+     "Company PAT achievement breakpoints (PAT_X, A31:A36)"),
+    ("curve.pat_y", "0,0.3,0.65,1,1.2,1.2",
+     "Company payout % at each breakpoint (PAT_Y, B31:B36)"),
+    ("curve.ind_x", "0,59.9,60,80,100,120",
+     "Individual score breakpoints (Ind_X, A40:A45)"),
+    ("curve.ind_y", "0,0,0.6,0.8,1,1.2",
+     "Individual payout % at each breakpoint (Ind_Y, B40:B45)"),
+    ("gate.pat", "0.7",
+     "Min PAT achievement for any company payout (Gate_PAT, B48)"),
+    ("gate.individual", "60",
+     "Min annual score for any individual payout (Gate_Ind, B49)"),
+    ("curve.merit_x", "0,60,70,80,90",
+     "Annual score bands for merit increment (Merit_X, A53:A57)"),
+    ("curve.merit_y", "0,0.005,0.015,0.025,0.04",
+     "Merit addition % per band (Merit_Y, B53:B57)"),
+    ("curve.modifier_x", "0,0.7,0.85,1,1.15",
+     "Annual PAT bands for the company modifier (Mod_X, A62:A66)"),
+    ("curve.modifier_y", "0,0.3,0.7,1,1.15",
+     "Multiplier applied to merit only (Mod_Y, B62:B66)"),
+    ("bonus.base", "1.0",
+     "Annual bonus as a multiple of monthly fixed at 100% (Bonus_Base, B70)"),
+    ("bonus.cap", "1.5",
+     "Annual bonus cap as a multiple of monthly fixed (Bonus_Cap, B71)"),
+    ("bonus.min_tenure_days", "365",
+     "Bonus and increment require a full year of service"),
     # -- card quality gate
     ("card.min_kpis", "3", "Minimum Result KPIs on a card"),
     ("card.max_kpis", "6",

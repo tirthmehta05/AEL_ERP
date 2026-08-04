@@ -151,6 +151,103 @@ def test_seeded_parameter_keys_are_unique():
     assert len(keys) == len(set(keys))
 
 
+# Transcribed from 04_Performance_Master.xlsx "Parameters", with the source
+# cell for each. Verified against the live workbook on 2026-08-04. The
+# workbook is not committed — it is salary-adjacent and this repo is public —
+# so these constants are the contract, and this test is what stops the ERP
+# and the payout engine drifting apart.
+WORKBOOK_PARAMETERS = {
+    "pillar.result":     ("0.6", "B23"),
+    "pillar.behaviour":  ("0.1", "B24"),
+    "pillar.knowledge":  ("0.2", "B25"),
+    "pillar.discipline": ("0.1", "B26"),
+    "macro.cpi":         ("0.055", "B5"),
+    "curve.pat_x":       ("0,0.7,0.85,1,1.15,2", "A31:A36"),
+    "curve.pat_y":       ("0,0.3,0.65,1,1.2,1.2", "B31:B36"),
+    "curve.ind_x":       ("0,59.9,60,80,100,120", "A40:A45"),
+    "curve.ind_y":       ("0,0,0.6,0.8,1,1.2", "B40:B45"),
+    "gate.pat":          ("0.7", "B48"),
+    "gate.individual":   ("60", "B49"),
+    "curve.merit_x":     ("0,60,70,80,90", "A53:A57"),
+    "curve.merit_y":     ("0,0.005,0.015,0.025,0.04", "B53:B57"),
+    "curve.modifier_x":  ("0,0.7,0.85,1,1.15", "A62:A66"),
+    "curve.modifier_y":  ("0,0.3,0.7,1,1.15", "B62:B66"),
+    "bonus.base":        ("1.0", "B70"),
+    "bonus.cap":         ("1.5", "B71"),
+}
+
+
+def _numeric_csv(text: str) -> list[float]:
+    return [float(part) for part in str(text).split(",")]
+
+
+@pytest.mark.parametrize("key", sorted(WORKBOOK_PARAMETERS))
+def test_incentive_parameters_match_the_performance_master(key):
+    """The ERP must not quietly diverge from the payout engine."""
+    expected, cell = WORKBOOK_PARAMETERS[key]
+    seeded = {k: v for k, v, _ in seed_data.PARAMETERS}
+    assert key in seeded, f"{key} missing — workbook has it at {cell}"
+    assert _numeric_csv(seeded[key]) == _numeric_csv(expected), (
+        f"{key} differs from Performance Master {cell}"
+    )
+
+
+def test_level_variable_shares_match_the_performance_master():
+    """Parameters A15:D19 — level, variable %, company share, individual share."""
+    expected = {
+        "MD":            (0.00, 0.00, 0.00),
+        "Director":      (0.10, 0.60, 0.40),
+        "VP":            (0.08, 0.50, 0.50),
+        "Sr. Associate": (0.05, 0.35, 0.65),
+        "Associate":     (0.03, 0.20, 0.80),
+    }
+    seeded = {row[0]: (row[2], row[3], row[4]) for row in seed_data.LEVELS}
+    assert seeded == pytest.approx(expected)
+
+
+def test_company_and_individual_shares_sum_to_one():
+    for level, _, _, company, individual in seed_data.LEVELS:
+        if level == "MD":
+            continue    # MD has no variable component in Year 1
+        assert company + individual == pytest.approx(1.0), level
+
+
+def test_payout_curve_breakpoints_are_monotonic():
+    """Piecewise-linear interpolation assumes ascending x values."""
+    seeded = {k: v for k, v, _ in seed_data.PARAMETERS}
+    for key in ("curve.pat_x", "curve.ind_x", "curve.merit_x", "curve.modifier_x"):
+        xs = _numeric_csv(seeded[key])
+        assert xs == sorted(xs), f"{key} is not ascending"
+    for x_key, y_key in (
+        ("curve.pat_x", "curve.pat_y"),
+        ("curve.ind_x", "curve.ind_y"),
+        ("curve.merit_x", "curve.merit_y"),
+        ("curve.modifier_x", "curve.modifier_y"),
+    ):
+        assert len(_numeric_csv(seeded[x_key])) == len(_numeric_csv(seeded[y_key])), (
+            f"{x_key} and {y_key} have different lengths"
+        )
+
+
+def test_gates_align_with_their_curves():
+    """Below the individual gate the curve must pay zero, or the gate and the
+    curve would disagree about what a sub-60 score earns."""
+    seeded = {k: v for k, v, _ in seed_data.PARAMETERS}
+    gate = float(seeded["gate.individual"])
+    xs = _numeric_csv(seeded["curve.ind_x"])
+    ys = _numeric_csv(seeded["curve.ind_y"])
+    for x, y in zip(xs, ys):
+        if x < gate:
+            assert y == 0.0, f"score {x} is below the gate but pays {y}"
+
+    pat_gate = float(seeded["gate.pat"])
+    pat_xs = _numeric_csv(seeded["curve.pat_x"])
+    pat_ys = _numeric_csv(seeded["curve.pat_y"])
+    for x, y in zip(pat_xs, pat_ys):
+        if x < pat_gate:
+            assert y == 0.0, f"PAT {x} is below the gate but pays {y}"
+
+
 # --------------------------------------------------------------------------
 # Admin edits
 # --------------------------------------------------------------------------
