@@ -19,6 +19,7 @@ from src.performance.models.performance_models import Employee
 from src.performance.repository.performance_repository import (
     PerformanceRepository,
     PerformanceRepositoryError,
+    clear_all_caches,
 )
 from src.performance.service.cycle_service import period_of
 from src.performance.service.org_service import OrgChart, as_of_for_period
@@ -68,26 +69,20 @@ class PerformanceContext:
 # --------------------------------------------------------------------------
 
 
-@st.cache_data(ttl=300, show_spinner=False)
-def _load_employee_rows(_repo: PerformanceRepository) -> list[dict]:
-    """Employee rows, cached as plain dicts.
-
-    Cached as dicts rather than models because Streamlit's cache pickles the
-    return value, and re-validating on read is cheap next to a Sheets round
-    trip. The leading underscore keeps the repo out of the cache key.
-    """
-    return [emp.model_dump(mode="json") for emp in _repo.get_employees()]
-
-
 def load_chart(repo: PerformanceRepository, period: str) -> OrgChart:
-    rows = _load_employee_rows(repo)
-    employees = [Employee(**row) for row in rows]
-    return OrgChart(employees, as_of=as_of_for_period(period))
+    """Resolve the org as of a period.
+
+    Reads go through the repository's own TTL cache, which is shared across
+    reruns — Streamlit rebuilds this page (and the repository) on every widget
+    interaction, so caching has to live below the Streamlit layer to help at
+    all.
+    """
+    return OrgChart(repo.get_employees(), as_of=as_of_for_period(period))
 
 
 def clear_caches() -> None:
     """Drop cached reads after a write."""
-    _load_employee_rows.clear()
+    clear_all_caches()
 
 
 # --------------------------------------------------------------------------

@@ -13,7 +13,12 @@ from __future__ import annotations
 import streamlit as st
 
 from theme.components import render_main_header
-from pages import performance_admin
+from pages import (
+    performance_admin,
+    performance_business_needs,
+    performance_my_work,
+    performance_set_cards,
+)
 from pages.performance_shared import (
     clear_caches,
     get_context,
@@ -37,16 +42,6 @@ TABS = [
 # Phase each not-yet-built tab lands in, and what it will do. Shown in place
 # of the tab body so the page explains itself during the rollout.
 COMING = {
-    TAB_MY_WORK: (
-        "Phase 2-3",
-        "Your live card, open deadlines, monthly scorecard and score trend.",
-    ),
-    TAB_SET_CARDS: (
-        "Phase 2",
-        "Set next month's card for each direct report — carried forward from "
-        "last month with per-item keep, edit, delete and add across all four "
-        "pillars, a live quality gate, and the AI prompt helper.",
-    ),
     TAB_SCORE: (
         "Phase 3",
         "Self-score, manager score and calibration, each item with a "
@@ -57,16 +52,18 @@ COMING = {
         "Mid-month check-ins and the quarterly 1:1 with a generated agenda "
         "and dual sign-off.",
     ),
-    TAB_BUSINESS_NEEDS: (
-        "Phase 2",
-        "Publish the month's company targets and the company-wide Behaviour "
-        "and Discipline baseline that cascades onto every card.",
-    ),
     TAB_COMPLIANCE: (
         "Phase 4",
         "Who is on time and who is late, by person and by stage, plus when "
         "reminder emails last went out.",
     ),
+}
+
+RENDERERS = {
+    TAB_MY_WORK: performance_my_work.render,
+    TAB_SET_CARDS: performance_set_cards.render,
+    TAB_BUSINESS_NEEDS: performance_business_needs.render,
+    TAB_ADMIN: performance_admin.render,
 }
 
 
@@ -82,8 +79,9 @@ def render() -> None:
     render_identity_bar(ctx)
     st.markdown("---")
 
-    if active_tab == TAB_ADMIN:
-        performance_admin.render(ctx)
+    renderer = RENDERERS.get(active_tab)
+    if renderer is not None:
+        renderer(ctx)
     else:
         _render_placeholder(active_tab)
 
@@ -127,7 +125,7 @@ def _render_placeholder(tab: str) -> None:
     st.subheader(tab)
     st.info(f"**Coming in {phase}.** {description}")
 
-    if tab in (TAB_MY_WORK, TAB_SET_CARDS, TAB_SCORE):
+    if tab == TAB_SCORE:
         period_selector()
 
     with st.expander("How the monthly cycle works"):

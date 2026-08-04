@@ -16,6 +16,8 @@ the first would silently strip everyone's permissions.
 
 from __future__ import annotations
 
+import threading
+import time
 from typing import Any, Optional, TypeVar
 
 import pandas as pd
@@ -48,6 +50,52 @@ logger = setup_logger(__name__)
 
 T = TypeVar("T", bound=SheetModel)
 
+# Process-wide read cache, shared across repository instances.
+#
+# Streamlit reruns the whole script on every widget interaction and builds a
+# fresh repository each time, so a per-instance cache never survives long
+# enough to help. Without this, a single page render re-reads several tabs and
+# a few clicks blow through Google's 60-reads-per-minute quota — which is
+# exactly what happened in testing.
+#
+# Deliberately not st.cache_data: src/ stays free of Streamlit imports, per
+# the convention stated in src/services.py.
+_CACHE_TTL_SECONDS = 60.0
+_cache: dict[tuple[str, str], tuple[float, pd.DataFrame]] = {}
+_cache_lock = threading.Lock()
+
+
+def _cache_get(key: tuple[str, str]) -> Optional[pd.DataFrame]:
+    with _cache_lock:
+        entry = _cache.get(key)
+        if entry is None:
+            return None
+        stored_at, frame = entry
+        if time.monotonic() - stored_at > _CACHE_TTL_SECONDS:
+            _cache.pop(key, None)
+            return None
+        return frame
+
+
+def _cache_put(key: tuple[str, str], frame: pd.DataFrame) -> None:
+    with _cache_lock:
+        _cache[key] = (time.monotonic(), frame)
+
+
+def _cache_drop(spreadsheet_id: str, sheet: Optional[str] = None) -> None:
+    with _cache_lock:
+        if sheet is None:
+            for key in [k for k in _cache if k[0] == spreadsheet_id]:
+                _cache.pop(key, None)
+        else:
+            _cache.pop((spreadsheet_id, sheet), None)
+
+
+def clear_all_caches() -> None:
+    """Drop every cached read. Used by tests and the Refresh button."""
+    with _cache_lock:
+        _cache.clear()
+
 
 class PerformanceRepositoryError(Exception):
     """Raised when the performance sheet is unreachable or misconfigured."""
@@ -57,7 +105,6 @@ class PerformanceRepository:
     def __init__(self, spreadsheet_id: Optional[str] = None):
         self.spreadsheet_id = spreadsheet_id or settings.performance.performance_sheets_id
         self.google = google_drive_service
-        self._cache: dict[str, pd.DataFrame] = {}
 
     # -- plumbing ----------------------------------------------------------
 
@@ -71,19 +118,18 @@ class PerformanceRepository:
 
     def invalidate(self, sheet: Optional[str] = None) -> None:
         """Drop cached reads. Called after every write."""
-        if sheet is None:
-            self._cache.clear()
-        else:
-            self._cache.pop(sheet, None)
+        _cache_drop(self.spreadsheet_id or "", sheet)
 
     def _frame(self, sheet: str) -> pd.DataFrame:
-        if sheet in self._cache:
-            return self._cache[sheet]
+        key = (self._require_id(), sheet)
+        cached = _cache_get(key)
+        if cached is not None:
+            return cached
         # raise_on_error: a failed read must not masquerade as an empty tab.
         frame = self.google.get_worksheet_data(
             self._require_id(), sheet, header_row=1, raise_on_error=True
         )
-        self._cache[sheet] = frame
+        _cache_put(key, frame)
         return frame
 
     def _read(self, model: type[T]) -> list[T]:
