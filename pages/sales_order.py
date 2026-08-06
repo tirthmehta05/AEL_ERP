@@ -293,7 +293,7 @@ def add_design_to_state():
             if width_m * length_m * density_kg_m3 == 0: raise ValueError("Width, Length, and Density must be non-zero.")
             
             stack_per_set_m = (weight_per_set / (width_m * length_m * density_kg_m3))
-            mm_stack = (stack_per_set_m * 1000) * num_sets
+            mm_stack = round((stack_per_set_m * 1000) * num_sets, 2)
         else:
             stack_per_set_mm = st.session_state.design_mm_stack
             mm_stack = stack_per_set_mm * num_sets
