@@ -179,7 +179,7 @@ def render_delivery_challan_tab(services: AppServices):
                                     for idx, design in enumerate(designs):
                                         description = f"{design.get('width', '')} X {design.get('length', '')}"
                                         if design.get('mm_stack'):
-                                            description += f" X {design.get('mm_stack', '')}"
+                                            description += f" X {float(design.get('mm_stack')):.2f}"
                                         
                                         # Only show weight/deduction/net on the LAST item for Building Core group
                                         is_last = (idx == num_designs - 1)
@@ -217,7 +217,7 @@ def render_delivery_challan_tab(services: AppServices):
                                         remark = design.get('remark', '')
                                         description = f"{design.get('width', '')} X {design.get('length', '')}"
                                         if design.get('mm_stack'):
-                                            description += f" X {design.get('mm_stack', '')}"
+                                            description += f" X {float(design.get('mm_stack')):.2f}"
                                             
                                         temp_items.append({
                                             "description": description,

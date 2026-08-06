@@ -380,7 +380,7 @@ class PDFService:
             pdf.rect(hole_cell_x, hole_cell_y, hole_cell_width, row_height)
             pdf.set_x(hole_cell_x + hole_cell_width)
 
-            pdf.cell(30, row_height, "" if item.get('mm_stack') is None else str(item.get('mm_stack')), border=1, align='C')
+            pdf.cell(30, row_height, "" if item.get('mm_stack') is None else f"{float(item.get('mm_stack')):.2f}", border=1, align='C')
             pdf.cell(30, row_height, "" if item.get('pcs') == 0 else str(item.get('pcs')), border=1, align='C')
             
             weight = 0
@@ -765,7 +765,7 @@ class PDFService:
                 desc_x = pdf.get_x()
                 description = f"{item.get('width', '')} X {item.get('length', '')}"
                 if item.get('mm_stack'):
-                    description += f" X {item.get('mm_stack', '')}"
+                    description += f" X {float(item.get('mm_stack')):.2f}"
                 
                 # Use multi_cell for description but manage positioning manually
                 pdf.multi_cell(desc_w, row_height, description, border=1, align='C', ln=1)
@@ -804,7 +804,7 @@ class PDFService:
                 desc_x = pdf.get_x()
                 description = f"{item.get('width', '')} X {item.get('length', '')}"
                 if item.get('mm_stack'):
-                    description += f" X {item.get('mm_stack', '')}"
+                    description += f" X {float(item.get('mm_stack')):.2f}"
                 
                 # Show sets if present (Itemized Mode); suppress for RN- (E&I) job cards.
                 if item.get('sets') and not is_rn_series:
