@@ -5,6 +5,7 @@ import pandas as pd
 import qrcode
 from src.slitting_plan.service.slitting_plan_service import SlittingPlanService
 from src.data_entry.service.sales_order_service import SalesOrderService
+from src.pdf_generator import hole_layout
 from src.data_entry.service.weight_receipt_service import WeightReceiptService
 from fpdf import FPDF
 import json
@@ -249,20 +250,20 @@ class PDFService:
             circle_x = plate_x + plate_width / 2
             circle_y = plate_y + plate_height / 2
             pdf.ellipse(circle_x - hole_radius, circle_y - hole_radius, hole_radius * 2, hole_radius * 2, 'D')
-        elif str.lower(hole_type) == "3-hole":
-            circle_y = plate_y + plate_height / 2
-            positions = [0.25, 0.5, 0.75]
-            for pos in positions:
-                circle_x = plate_x + plate_width * pos
-                pdf.ellipse(circle_x - hole_radius, circle_y - hole_radius, hole_radius * 2, hole_radius * 2, 'D')
-        elif str.lower(hole_type) == "5-hole":
-            circle_y = plate_y + plate_height / 2
-            positions = [0.15, 0.325, 0.5, 0.675, 0.85]
-            for pos in positions:
-                circle_x = plate_x + plate_width * pos
-                pdf.ellipse(circle_x - hole_radius, circle_y - hole_radius, hole_radius * 2, hole_radius * 2, 'D')
         elif str.lower(hole_type) == "ready entry": # Handle "Ready Entry" by drawing no holes
             pass
+        elif (hole_count := hole_layout.parse_hole_count(hole_type)) is not None:
+            # Any "<n>-Hole" value, so a new count needs no code change. 3-Hole
+            # and 5-Hole still land here and keep their original spacing.
+            circle_y = plate_y + plate_height / 2
+            counted_radius = hole_layout.hole_radius(hole_count, plate_width)
+            pdf.set_line_width(hole_layout.stroke_width(counted_radius))
+            for pos in hole_layout.hole_positions(hole_count):
+                circle_x = plate_x + plate_width * pos
+                pdf.ellipse(
+                    circle_x - counted_radius, circle_y - counted_radius,
+                    counted_radius * 2, counted_radius * 2, 'D',
+                )
         
         # Reset line width to default
         pdf.set_line_width(0.2)

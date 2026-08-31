@@ -11,8 +11,50 @@ from src.data_entry.models.sales_order_models import SalesOrderRequest, DesignDe
 from config import settings
 from pages.sales_order_components import render_coil_assignment_fields, render_assigned_coils_table
 from src.shared.utils.logger_config import setup_logger
+from src.pdf_generator import hole_layout
 
 logger = setup_logger(__name__)
+
+CUSTOM_HOLE_LABEL = "Custom count..."
+
+# Shortcuts only. The job card PDF draws any "<n>-Hole" value, so a count that
+# is not listed here still renders — this list is what people reach for most.
+HOLE_OPTIONS = [
+    "Plain", "Centre", "Both Side", "Side",
+    "3-Hole", "4-Hole", "5-Hole",
+    "Daimond", "V-Noch",
+    CUSTOM_HOLE_LABEL,
+]
+
+
+def _resolve_hole(selection_key: str) -> str:
+    """Read a hole selection back out of session state as a storable value.
+
+    The dropdown itself holds the literal "Custom count..." label, which must
+    never reach the sheet — the count beside it is the real answer.
+    """
+    selection = st.session_state.get(selection_key, "Plain")
+    if selection != CUSTOM_HOLE_LABEL:
+        return selection
+
+    count = st.session_state.get(f"{selection_key}_count", 4)
+    return f"{int(count)}-Hole"
+
+
+def _render_hole_selector(selection_key: str) -> str:
+    """Hole dropdown, plus the count input that the Custom option reveals."""
+    st.selectbox("Hole", options=HOLE_OPTIONS, key=selection_key)
+    if st.session_state.get(selection_key) == CUSTOM_HOLE_LABEL:
+        st.number_input(
+            "Number of holes",
+            min_value=1, max_value=hole_layout.MAX_HOLES, value=4, step=1,
+            key=f"{selection_key}_count",
+            help=(
+                f"1 to {hole_layout.MAX_HOLES}. Drawn evenly across the plate on "
+                "the job card; above about seven the circles shrink to fit."
+            ),
+        )
+    return _resolve_hole(selection_key)
 
 @st.dialog("Confirm Sales Order Save", width="large")
 def _show_sales_order_confirmation_dialog(service: SalesOrderService, request_data: dict, total_design_weight: float, total_coil_weight: float, is_weight_mismatched: bool):
@@ -219,7 +261,7 @@ def render_design_entry_fields():
         st.number_input("Length (mm)", min_value=0.0, step=1.0, format="%.2f", key="design_length")
         is_loose = st.checkbox("Calculate from Weight", key="design_is_loose")
     with col3:
-        st.selectbox("Hole", options=["Plain", "Centre", "Both Side", "Side", "3-Hole", "5-Hole", "Daimond", "V-Noch"], key="design_hole")
+        _render_hole_selector("design_hole")
         st.number_input("Thickness (mm)", min_value=0.0, step=0.01, format="%.2f", key="design_thk")
         st.number_input("Weight (kg)", min_value=0.0, step=1.0, format="%.2f", key="design_weight", disabled=not is_loose)
     with col4:
@@ -312,7 +354,7 @@ def add_design_to_state():
             width=st.session_state.design_width, length=st.session_state.design_length,
             mm_stack=mm_stack, weight=weight, sets=st.session_state.design_sets,
             type=st.session_state.so_type, thk=st.session_state.design_thk,
-            grade=st.session_state.so_grade or None, hole=st.session_state.design_hole,
+            grade=st.session_state.so_grade or None, hole=_resolve_hole("design_hole"),
             pcs=pcs, coating=st.session_state.so_coating or None
         )
         st.session_state.so_designs.append(design.model_dump())
@@ -782,7 +824,7 @@ def render_update_sales_order(service: SalesOrderService, dropdown_data):
             new_length = st.number_input("Length (mm)", min_value=0.0, step=1.0, format="%.2f", key="upd_new_length")
             new_thk = st.number_input("Thickness (mm)", min_value=0.0, step=0.01, format="%.2f", key="upd_new_thk")
         with nc3:
-            new_hole = st.selectbox("Hole", options=["Plain", "Centre", "Both Side", "Side", "3-Hole", "5-Hole", "Daimond", "V-Noch"], key="upd_new_hole")
+            new_hole = _render_hole_selector("upd_new_hole")
             new_weight = st.number_input("Weight (kg)", min_value=0.0, step=1.0, format="%.2f", key="upd_new_weight")
         with nc4:
             new_mm_stack = st.number_input("Stack (mm)", min_value=0.0, step=1.0, format="%.1f", key="upd_new_mm_stack")
