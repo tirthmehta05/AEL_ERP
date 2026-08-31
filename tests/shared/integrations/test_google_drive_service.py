@@ -119,3 +119,85 @@ def test_upsert_row_updates_existing_row(mocked_service):
     mock_worksheet.update.assert_called_with('A5', [update_data], value_input_option='USER_ENTERED')
     mock_worksheet.append_row.assert_not_called()
     assert result is True
+
+
+# ---------------------------------------------------------------------------
+# Retry behaviour for transient API failures.
+#
+# Regression guard for the 2026-08-31 production incident: Google Sheets
+# returned "[503]: The service is currently unavailable" for ~12 minutes and
+# every read failed on its first and only attempt, because _execute_with_retry
+# retried 429 alone. Transient 5xx must be retried like a rate limit.
+# ---------------------------------------------------------------------------
+
+class _FakeAPIError(Exception):
+    """Stand-in for gspread.exceptions.APIError, which conftest mocks out."""
+
+    def __init__(self, status_code):
+        super().__init__(f"APIError: [{status_code}]")
+        self.response = MagicMock()
+        self.response.status_code = status_code
+
+
+@pytest.fixture
+def retry_service(mocked_service):
+    """Service with a real APIError class patched in and sleep neutered."""
+    service, _ = mocked_service
+    service.max_retries = 3
+    service.initial_backoff = 0.0
+    with patch('src.shared.integrations.google_drive_service.APIError', _FakeAPIError), \
+         patch('src.shared.integrations.google_drive_service.time.sleep') as mock_sleep:
+        yield service, mock_sleep
+
+
+@pytest.mark.parametrize("status_code", [408, 429, 500, 502, 503, 504])
+def test_execute_with_retry_recovers_from_transient_errors(retry_service, status_code):
+    """A transient failure is retried and the eventual success is returned."""
+    service, mock_sleep = retry_service
+    func = MagicMock(side_effect=[_FakeAPIError(status_code), "ok"])
+
+    assert service._execute_with_retry(func, "arg", kw=1) == "ok"
+    assert func.call_count == 2
+    func.assert_called_with("arg", kw=1)
+    assert mock_sleep.call_count == 1
+
+
+@pytest.mark.parametrize("status_code", [400, 403, 404])
+def test_execute_with_retry_raises_permanent_errors_immediately(retry_service, status_code):
+    """Non-transient API errors are not retried."""
+    service, mock_sleep = retry_service
+    func = MagicMock(side_effect=_FakeAPIError(status_code))
+
+    with pytest.raises(_FakeAPIError):
+        service._execute_with_retry(func)
+
+    assert func.call_count == 1
+    mock_sleep.assert_not_called()
+
+
+def test_execute_with_retry_gives_up_after_max_retries(retry_service):
+    """Persistent transient failures exhaust the retry budget and raise."""
+    service, _ = retry_service
+    func = MagicMock(side_effect=_FakeAPIError(503))
+
+    with pytest.raises(_FakeAPIError):
+        service._execute_with_retry(func)
+
+    assert func.call_count == service.max_retries
+
+
+def test_execute_with_retry_backs_off_exponentially(retry_service):
+    """Each retry waits longer than the last, capped at max_backoff."""
+    service, mock_sleep = retry_service
+    service.max_retries = 5
+    service.initial_backoff = 1.0
+    service.max_backoff = 4.0
+    func = MagicMock(side_effect=[_FakeAPIError(503)] * 4 + ["ok"])
+
+    assert service._execute_with_retry(func) == "ok"
+
+    # jitter adds [0, 1) to each backoff of 1, 2, 4, 4
+    waits = [call.args[0] for call in mock_sleep.call_args_list]
+    assert len(waits) == 4
+    for wait, expected in zip(waits, [1.0, 2.0, 4.0, 4.0]):
+        assert expected <= wait < expected + 1

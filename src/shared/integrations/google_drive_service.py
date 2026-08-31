@@ -23,6 +23,20 @@ class RateLimitError(Exception):
     pass
 
 
+# HTTP statuses worth retrying: Google returns these for transient conditions
+# (quota pushback, backend hiccups) where the same request usually succeeds a
+# moment later. Anything else — 400, 403, 404 — is a real error and is raised
+# immediately so it is not hidden behind a minute of pointless backoff.
+RETRYABLE_STATUS_CODES = frozenset({
+    408,  # Request Timeout
+    429,  # Too Many Requests (rate limit)
+    500,  # Internal Server Error
+    502,  # Bad Gateway
+    503,  # Service Unavailable
+    504,  # Gateway Timeout
+})
+
+
 class GoogleDriveService:
     """
     Google Drive Integration Service for AEL ERP System
@@ -57,28 +71,35 @@ class GoogleDriveService:
         self._initialize_client()
 
     def _execute_with_retry(self, func: Callable, *args, **kwargs) -> Any:
-        """Executes a gspread function with retry logic for rate limiting."""
+        """Executes a gspread function, retrying transient API failures.
+
+        Retries on rate limiting (429) and on transient server-side errors
+        (500/502/503/504) and request timeouts (408), backing off exponentially
+        with jitter between attempts. Every other APIError is raised on the
+        first attempt.
+        """
         retries = 0
         backoff = self.initial_backoff
         while retries < self.max_retries:
             try:
                 return func(*args, **kwargs)
             except APIError as e:
-                # Specifically handle 429: Too Many Requests
-                if e.response.status_code == 429:
-                    retries += 1
-                    if retries >= self.max_retries:
-                        logger.error(f"API rate limit exceeded. Max retries reached. Failing after {self.max_retries} attempts.")
-                        raise
-                    
-                    # Exponential backoff with jitter
-                    sleep_time = backoff + random.uniform(0, 1)
-                    logger.warning(f"API rate limit exceeded. Retrying in {sleep_time:.2f} seconds... (Attempt {retries}/{self.max_retries})")
-                    time.sleep(sleep_time)
-                    backoff = min(self.max_backoff, backoff * 2)
-                else:
-                    # Re-raise other API errors immediately
+                status_code = getattr(getattr(e, "response", None), "status_code", None)
+                if status_code not in RETRYABLE_STATUS_CODES:
+                    # Re-raise non-transient API errors immediately
                     raise
+
+                reason = "API rate limit exceeded" if status_code == 429 else f"Transient API error [{status_code}]"
+                retries += 1
+                if retries >= self.max_retries:
+                    logger.error(f"{reason}. Max retries reached. Failing after {self.max_retries} attempts.")
+                    raise
+
+                # Exponential backoff with jitter
+                sleep_time = backoff + random.uniform(0, 1)
+                logger.warning(f"{reason}. Retrying in {sleep_time:.2f} seconds... (Attempt {retries}/{self.max_retries})")
+                time.sleep(sleep_time)
+                backoff = min(self.max_backoff, backoff * 2)
             except Exception:
                 # Re-raise non-gspread exceptions
                 raise
