@@ -5,7 +5,11 @@ import gspread
 
 # We have to patch the settings before importing the service
 with patch('config.settings', MagicMock()):
-    from src.shared.integrations.google_drive_service import GoogleDriveService
+    from src.shared.integrations.google_drive_service import (
+        GoogleDriveService,
+        RateLimitError,
+        TransientAPIError,
+    )
 
 @pytest.fixture
 def mocked_service():
@@ -141,13 +145,20 @@ class _FakeAPIError(Exception):
 
 @pytest.fixture
 def retry_service(mocked_service):
-    """Service with a real APIError class patched in and sleep neutered."""
+    """Service with a real APIError class patched in and sleep neutered.
+
+    The whole `time` module is swapped for a mock rather than patching
+    `time.sleep` directly: `google_drive_service.time` *is* the shared stdlib
+    module object, so patching an attribute on it would make sleep a no-op
+    process-wide for the duration of the test.
+    """
     service, _ = mocked_service
     service.max_retries = 3
     service.initial_backoff = 0.0
+    mock_time = MagicMock()
     with patch('src.shared.integrations.google_drive_service.APIError', _FakeAPIError), \
-         patch('src.shared.integrations.google_drive_service.time.sleep') as mock_sleep:
-        yield service, mock_sleep
+         patch('src.shared.integrations.google_drive_service.time', mock_time):
+        yield service, mock_time.sleep
 
 
 @pytest.mark.parametrize("status_code", [408, 429, 500, 502, 503, 504])
@@ -180,10 +191,106 @@ def test_execute_with_retry_gives_up_after_max_retries(retry_service):
     service, _ = retry_service
     func = MagicMock(side_effect=_FakeAPIError(503))
 
-    with pytest.raises(_FakeAPIError):
+    with pytest.raises(TransientAPIError):
         service._execute_with_retry(func)
 
     assert func.call_count == service.max_retries
+
+
+def test_exhausted_retries_raise_transient_not_api_error(retry_service):
+    """Exhaustion raises TransientAPIError, not the underlying APIError.
+
+    Callers wrap these calls in `except APIError: return False`. An exhausted
+    retry means the outcome is UNKNOWN, so it must not be catchable as a clean
+    failure by those handlers — it has to propagate.
+    """
+    service, _ = retry_service
+    func = MagicMock(side_effect=_FakeAPIError(503))
+
+    with pytest.raises(TransientAPIError) as exc_info:
+        service._execute_with_retry(func)
+
+    assert not isinstance(exc_info.value, _FakeAPIError)
+    # the original error is preserved for diagnosis
+    assert isinstance(exc_info.value.__cause__, _FakeAPIError)
+
+
+def test_exhausted_rate_limit_raises_rate_limit_error(retry_service):
+    """429 exhaustion keeps the more specific RateLimitError type."""
+    service, _ = retry_service
+    func = MagicMock(side_effect=_FakeAPIError(429))
+
+    with pytest.raises(RateLimitError):
+        service._execute_with_retry(func)
+
+
+# --- Non-idempotent calls must not be replayed on 5xx ----------------------
+#
+# A 429 is a pre-execution quota rejection, so replaying is free. A 502/504 can
+# arrive *after* Google applied the mutation, so replaying an append duplicates
+# a row and replaying an index-based delete removes the wrong record.
+
+
+@pytest.mark.parametrize("status_code", [408, 500, 502, 503, 504])
+def test_non_idempotent_calls_are_not_retried_on_server_errors(retry_service, status_code):
+    """Writes fail fast on 5xx rather than risking a double-apply."""
+    service, mock_sleep = retry_service
+    func = MagicMock(side_effect=_FakeAPIError(status_code))
+
+    with pytest.raises(_FakeAPIError):
+        service._execute_with_retry(func, _idempotent=False)
+
+    assert func.call_count == 1
+    mock_sleep.assert_not_called()
+
+
+def test_non_idempotent_calls_are_still_retried_on_rate_limit(retry_service):
+    """429 is safe to replay for writes too — the request never ran."""
+    service, _ = retry_service
+    func = MagicMock(side_effect=[_FakeAPIError(429), "ok"])
+
+    assert service._execute_with_retry(func, _idempotent=False) == "ok"
+    assert func.call_count == 2
+
+
+def test_idempotent_flag_is_not_forwarded_to_the_wrapped_call(retry_service):
+    """_idempotent is consumed by the wrapper, never passed to gspread."""
+    service, _ = retry_service
+    func = MagicMock(return_value="ok")
+
+    service._execute_with_retry(func, "arg", value_input_option='USER_ENTERED', _idempotent=False)
+
+    func.assert_called_once_with("arg", value_input_option='USER_ENTERED')
+
+
+def test_delete_rows_by_key_does_not_retry_deletes_on_server_error(mocked_service):
+    """The row-deletion loop is the least replayable call in the class.
+
+    Indices are absolute and resolved by the preceding findall, so a delete
+    that commits and loses its response would, on replay, remove whatever row
+    slid into that index — a different record entirely.
+    """
+    service, mock_gspread_client = mocked_service
+    service.max_retries = 3
+    service.initial_backoff = 0.0
+
+    mock_spreadsheet = MagicMock()
+    mock_worksheet = MagicMock()
+    mock_gspread_client.open_by_key.return_value = mock_spreadsheet
+    mock_spreadsheet.worksheet.return_value = mock_worksheet
+    mock_cell = MagicMock()
+    mock_cell.row = 10
+    mock_worksheet.findall.return_value = [mock_cell]
+    mock_worksheet.delete_rows.side_effect = _FakeAPIError(504)
+
+    mock_time = MagicMock()
+    with patch('src.shared.integrations.google_drive_service.APIError', _FakeAPIError), \
+         patch('src.shared.integrations.google_drive_service.time', mock_time):
+        result = service.delete_rows_by_key("sheet_id", "Sales Order", "N-6881", key_column_index=0)
+
+    assert result is False
+    assert mock_worksheet.delete_rows.call_count == 1
+    mock_time.sleep.assert_not_called()
 
 
 def test_execute_with_retry_backs_off_exponentially(retry_service):

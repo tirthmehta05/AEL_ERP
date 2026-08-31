@@ -675,8 +675,14 @@ def render_update_sales_order(service: SalesOrderService, dropdown_data):
         return
 
     # --- Step 2: Fetch and Select Job Card ---
-    with st.spinner("Loading job cards..."):
-        job_cards = service.get_sales_orders_by_party(upd_party)
+    # A Sheets outage must not read as "this party has no orders" — that would
+    # invite the user to re-create orders that already exist.
+    try:
+        with st.spinner("Loading job cards..."):
+            job_cards = service.get_sales_orders_by_party(upd_party)
+    except Exception:
+        st.error("Could not reach Google Sheets to load job cards. Please try again in a moment.")
+        return
 
     if not job_cards:
         st.warning("No Sales Orders found for this party.")

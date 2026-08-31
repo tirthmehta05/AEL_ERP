@@ -2,7 +2,7 @@ from typing import List
 import requests
 import msal
 from src.shared.utils.logger_config import setup_logger
-from src.shared.integrations.google_drive_service import google_drive_service, RateLimitError
+from src.shared.integrations.google_drive_service import google_drive_service, TransientAPIError
 from src.data_entry.models.sales_order_models import SalesOrderRequest, SalesOrderDropdownData, PowerAutomatePlannerRequest, FullCoilSaleRequest, DesignDetail
 from src.data_entry.service.rm_used_service import RMUsedService
 from src.data_entry.models.rm_used_models import RMUsedRequest
@@ -420,7 +420,7 @@ class SalesOrderService:
             filtered_df = filtered_df.drop(columns=['party_name_lower'])
 
             return filtered_df.to_dict('records')
-        except RateLimitError:
+        except TransientAPIError:
             raise
         except Exception as e:
             logger.error(f"Error fetching sales orders for party {party_name}: {str(e)}")
@@ -488,7 +488,7 @@ class SalesOrderService:
 
             logger.info(f"Successfully updated Sales Order {job_card_number} designs in both sheets.")
             return True
-        except RateLimitError:
+        except TransientAPIError:
             raise
         except Exception as e:
             logger.error(f"Error updating sales order designs for {job_card_number}: {str(e)}")
