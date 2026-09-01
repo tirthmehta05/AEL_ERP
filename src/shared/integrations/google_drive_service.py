@@ -18,9 +18,46 @@ from config import settings
 logger = setup_logger(__name__)
 
 
-class RateLimitError(Exception):
+class TransientAPIError(Exception):
+    """Raised when a transient Sheets API failure survives every retry.
+
+    Distinct from APIError so callers can tell "the API was unreachable" apart
+    from "the API answered, and the answer was no". Handlers that catch APIError
+    and return False must not swallow this: an exhausted retry means the
+    operation's outcome is unknown, not that it failed cleanly.
+    """
+    pass
+
+
+class RateLimitError(TransientAPIError):
     """Raised when the Google Sheets API rate limit is exceeded."""
     pass
+
+
+# HTTP statuses worth retrying, split by whether replaying the call is safe.
+#
+# A 429 is a pre-execution quota rejection: the request never ran, so replaying
+# it is free. A 5xx is not that — Google returns 502/504 routinely *after* a
+# mutation has already been applied, when only the response was lost. Replaying
+# a write on 5xx therefore risks applying it twice.
+#
+# Anything outside these sets — 400, 403, 404 — is a real answer and raises on
+# the first attempt rather than hiding behind a minute of pointless backoff.
+RETRYABLE_READ_STATUS_CODES = frozenset({
+    408,  # Request Timeout
+    429,  # Too Many Requests (rate limit)
+    500,  # Internal Server Error
+    502,  # Bad Gateway
+    503,  # Service Unavailable
+    504,  # Gateway Timeout
+})
+
+# Non-idempotent calls (append/insert/delete/create) retry on quota pushback
+# only. Replaying these after a 5xx duplicates rows or, for index-based
+# deletes, removes a different row than the one that was found.
+RETRYABLE_WRITE_STATUS_CODES = frozenset({
+    429,  # Too Many Requests (rate limit)
+})
 
 
 class GoogleDriveService:
@@ -44,7 +81,12 @@ class GoogleDriveService:
     2. File-based: Place service account JSON at credentials/service-account-key.json
     """
     
-    def __init__(self, max_retries: int = 5, initial_backoff: float = 1.0, max_backoff: float = 60.0):
+    # Budget chosen against the 30s double-click lock in the data-entry pages
+    # (pages/sales_order.py, pages/weight_receipt.py). A save issues several
+    # wrapped calls in sequence, so the per-call worst case has to stay small
+    # enough that a whole save cannot outlive the lock and let a second click
+    # start a duplicate. 3 retries at 1s/2s + jitter ≈ 5s per call worst case.
+    def __init__(self, max_retries: int = 3, initial_backoff: float = 1.0, max_backoff: float = 8.0):
         self.scope = [
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive",
@@ -56,29 +98,47 @@ class GoogleDriveService:
         self.max_backoff = max_backoff
         self._initialize_client()
 
-    def _execute_with_retry(self, func: Callable, *args, **kwargs) -> Any:
-        """Executes a gspread function with retry logic for rate limiting."""
+    def _execute_with_retry(self, func: Callable, *args, _idempotent: bool = True, **kwargs) -> Any:
+        """Executes a gspread function, retrying transient API failures.
+
+        Backs off exponentially with jitter between attempts. Which failures
+        are retried depends on whether replaying the call is safe:
+
+        - _idempotent=True (default, reads and fixed-range writes): retries the
+          full transient set — 408/429/500/502/503/504.
+        - _idempotent=False (append, insert, delete, create): retries 429 only,
+          because a 5xx may mean the mutation already landed and only the
+          response was lost. See RETRYABLE_WRITE_STATUS_CODES.
+
+        Raises RateLimitError / TransientAPIError once the retry budget is
+        exhausted, so an unknown outcome is never mistaken by callers for a
+        clean failure. Every other APIError is raised on the first attempt.
+        """
+        retryable = RETRYABLE_READ_STATUS_CODES if _idempotent else RETRYABLE_WRITE_STATUS_CODES
         retries = 0
         backoff = self.initial_backoff
         while retries < self.max_retries:
             try:
                 return func(*args, **kwargs)
             except APIError as e:
-                # Specifically handle 429: Too Many Requests
-                if e.response.status_code == 429:
-                    retries += 1
-                    if retries >= self.max_retries:
-                        logger.error(f"API rate limit exceeded. Max retries reached. Failing after {self.max_retries} attempts.")
-                        raise
-                    
-                    # Exponential backoff with jitter
-                    sleep_time = backoff + random.uniform(0, 1)
-                    logger.warning(f"API rate limit exceeded. Retrying in {sleep_time:.2f} seconds... (Attempt {retries}/{self.max_retries})")
-                    time.sleep(sleep_time)
-                    backoff = min(self.max_backoff, backoff * 2)
-                else:
-                    # Re-raise other API errors immediately
+                status_code = getattr(getattr(e, "response", None), "status_code", None)
+                if status_code not in retryable:
+                    # Re-raise immediately: either a real error, or a 5xx on a
+                    # call we must not replay.
                     raise
+
+                reason = "API rate limit exceeded" if status_code == 429 else f"Transient API error [{status_code}]"
+                retries += 1
+                if retries >= self.max_retries:
+                    logger.error(f"{reason}. Max retries reached. Failing after {self.max_retries} attempts.")
+                    error_cls = RateLimitError if status_code == 429 else TransientAPIError
+                    raise error_cls(f"{reason}; giving up after {self.max_retries} attempts.") from e
+
+                # Exponential backoff with jitter
+                sleep_time = backoff + random.uniform(0, 1)
+                logger.warning(f"{reason}. Retrying in {sleep_time:.2f} seconds... (Attempt {retries}/{self.max_retries})")
+                time.sleep(sleep_time)
+                backoff = min(self.max_backoff, backoff * 2)
             except Exception:
                 # Re-raise non-gspread exceptions
                 raise
@@ -232,7 +292,7 @@ class GoogleDriveService:
             worksheet = self._execute_with_retry(spreadsheet.worksheet, worksheet_name)
 
             # Append the new row with USER_ENTERED value input option
-            self._execute_with_retry(worksheet.append_rows, data, value_input_option='USER_ENTERED')
+            self._execute_with_retry(worksheet.append_rows, data, value_input_option='USER_ENTERED', _idempotent=False)
             return True
 
         except APIError as e:
@@ -258,7 +318,7 @@ class GoogleDriveService:
             last_row_index = len(all_values)
 
             # Insert the new rows before the last row
-            self._execute_with_retry(worksheet.insert_rows, data, row=last_row_index, value_input_option='USER_ENTERED')
+            self._execute_with_retry(worksheet.insert_rows, data, row=last_row_index, value_input_option='USER_ENTERED', _idempotent=False)
             return True
 
         except APIError as e:
@@ -319,11 +379,11 @@ class GoogleDriveService:
                 # If sheet exists but is empty, add headers
                 all_values = self._execute_with_retry(worksheet.get_all_values)
                 if not all_values:
-                    self._execute_with_retry(worksheet.append_row, headers, value_input_option='USER_ENTERED')
+                    self._execute_with_retry(worksheet.append_row, headers, value_input_option='USER_ENTERED', _idempotent=False)
             except gspread.exceptions.WorksheetNotFound:
                 # If sheet does not exist, create it and add headers
-                worksheet = self._execute_with_retry(spreadsheet.add_worksheet, title=worksheet_name, rows=1, cols=len(headers))
-                self._execute_with_retry(worksheet.append_row, headers, value_input_option='USER_ENTERED')
+                worksheet = self._execute_with_retry(spreadsheet.add_worksheet, title=worksheet_name, rows=1, cols=len(headers), _idempotent=False)
+                self._execute_with_retry(worksheet.append_row, headers, value_input_option='USER_ENTERED', _idempotent=False)
             return True
         except APIError as e:
             logger.error(f"A gspread API error occurred while ensuring worksheet '{worksheet_name}': {str(e)}")
@@ -343,21 +403,23 @@ class GoogleDriveService:
                 worksheet = self._execute_with_retry(spreadsheet.worksheet, worksheet_name)
             except gspread.exceptions.WorksheetNotFound:
                 logger.info(f"Worksheet '{worksheet_name}' not found. Creating it.")
-                worksheet = self._execute_with_retry(spreadsheet.add_worksheet, title=worksheet_name, rows=1, cols=len(data))
-                self._execute_with_retry(worksheet.append_row, data, value_input_option='USER_ENTERED')
+                worksheet = self._execute_with_retry(spreadsheet.add_worksheet, title=worksheet_name, rows=1, cols=len(data), _idempotent=False)
+                self._execute_with_retry(worksheet.append_row, data, value_input_option='USER_ENTERED', _idempotent=False)
                 return True
 
             key_to_find = data[key_column_index]
             cell_list = self._execute_with_retry(worksheet.findall, key_to_find, in_column=key_column_index + 1)
 
             if cell_list:
-                # Key found, update the first occurrence
+                # Key found, update the first occurrence. Writing fixed values to
+                # a fixed range is idempotent — a replay lands on the same cells
+                # with the same data — so this keeps the full retry set.
                 row_index = cell_list[0].row
                 self._execute_with_retry(worksheet.update, f'A{row_index}', [data], value_input_option='USER_ENTERED')
                 logger.info(f"Updated row {row_index} for key '{key_to_find}' in '{worksheet_name}'.")
             else:
                 # Key not found, append new row
-                self._execute_with_retry(worksheet.append_row, data, value_input_option='USER_ENTERED')
+                self._execute_with_retry(worksheet.append_row, data, value_input_option='USER_ENTERED', _idempotent=False)
                 logger.info(f"Appended new row for key '{key_to_find}' in '{worksheet_name}'.")
             
             return True
@@ -383,14 +445,19 @@ class GoogleDriveService:
                 logger.info(f"No rows found for key '{key_value}' in '{worksheet_name}'. Nothing to delete.")
                 return True
 
-            # Delete from bottom to top so row indices don't shift
+            # Delete from bottom to top so row indices don't shift.
+            #
+            # These indices are absolute and were resolved by the findall above,
+            # so this is the least replayable call in the class: if a delete
+            # commits and only its response is lost, the row that slid into that
+            # index belongs to a different record. Never retry it on a 5xx.
             rows_to_delete = sorted([cell.row for cell in cell_list], reverse=True)
             for row_index in rows_to_delete:
-                self._execute_with_retry(worksheet.delete_rows, row_index)
+                self._execute_with_retry(worksheet.delete_rows, row_index, _idempotent=False)
 
             logger.info(f"Deleted {len(rows_to_delete)} rows for key '{key_value}' in '{worksheet_name}'.")
             return True
-        except RateLimitError:
+        except TransientAPIError:
             raise
         except APIError as e:
             logger.error(f"A gspread API error occurred while deleting rows in '{worksheet_name}': {str(e)}")
@@ -414,11 +481,13 @@ class GoogleDriveService:
                 logger.error(f"Key '{key_value}' not found in column {key_column_index + 1} of '{worksheet_name}'.")
                 return False
 
-            # target_column_index is 0-based, update_cell expects 1-based column
+            # target_column_index is 0-based, update_cell expects 1-based column.
+            # Fixed cell, fixed value: a replay is a no-op, so the full retry set
+            # applies.
             self._execute_with_retry(worksheet.update_cell, cell.row, target_column_index + 1, new_value)
             logger.info(f"Updated column {target_column_index + 1} in row {cell.row} for key '{key_value}' in '{worksheet_name}'.")
             return True
-        except RateLimitError:
+        except TransientAPIError:
             raise
         except APIError as e:
             logger.error(f"A gspread API error occurred while updating cell in '{worksheet_name}': {str(e)}")
