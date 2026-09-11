@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from datetime import date
 from typing import List, Dict, Optional, Literal
 
@@ -8,10 +8,21 @@ class WeighedDesignDetail(BaseModel):
     width: float
     length: float
     mm_stack: Optional[float] = None
+    thk: Optional[float] = None # Thickness (mm), carried over from the Sales Order design
     actual_weight: Optional[float] = None
     remark: Optional[str] = None
     design_deduction: Optional[float] = 0.0  # Per-design deduction
     sets: Optional[int] = None # Number of sets for this specific design (for Loose Strips/Itemized mode)
+
+    @field_validator("thk", mode="before")
+    @classmethod
+    def coerce_thk(cls, v):
+        # Thickness is display-only on the receipt; a blank or malformed value in
+        # a legacy designs_json must never block saving a weight receipt.
+        try:
+            return float(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
 
 class WeightReceiptRequest(BaseModel):
     """Request model for creating a new Weight Receipt."""
