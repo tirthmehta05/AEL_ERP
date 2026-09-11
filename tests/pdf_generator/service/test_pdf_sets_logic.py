@@ -188,3 +188,88 @@ def test_weight_receipt_shows_itemized_sets(pdf_service):
         if found_text: break
             
     assert found_text, f"Weight Receipt should display '{expected_text}'"
+
+
+def _cell_texts(mock_pdf):
+    """All string arguments passed to pdf.cell / pdf.multi_cell."""
+    calls = mock_pdf.cell.call_args_list + mock_pdf.multi_cell.call_args_list
+    return [arg for c in calls for arg in c.args if isinstance(arg, str)]
+
+
+def _receipt(designs):
+    return {
+        'WeightReceiptNumber': 'WR-002',
+        'PartyName': 'Test Party',
+        'JobCardNumber': 'JC-1',
+        'WeightEntryType': 'Loose Strips',
+        'DesignDetailsWithWeightsJSON': json.dumps(designs),
+    }
+
+
+def test_weight_receipt_header_shows_thickness_from_receipt(pdf_service):
+    """Thk in the header comes from the receipt's saved designs, de-duplicated."""
+    designs = [
+        {'width': 100, 'length': 200, 'thk': 0.35, 'actual_weight': 10.0},
+        {'width': 120, 'length': 200, 'thk': 0.35, 'actual_weight': 12.0},
+    ]
+    mock_pdf = MagicMock()
+    pdf_service._draw_weight_receipt(mock_pdf, _receipt(designs), jc_thickness="0.27 mm")
+
+    texts = _cell_texts(mock_pdf)
+    assert "Thk" in texts
+    assert ": 0.35 mm" in texts, "Receipt thickness should win over the JC fallback"
+
+
+def test_weight_receipt_header_lists_distinct_thicknesses(pdf_service):
+    designs = [
+        {'width': 100, 'length': 200, 'thk': 0.27, 'actual_weight': 10.0},
+        {'width': 120, 'length': 200, 'thk': 0.35, 'actual_weight': 12.0},
+    ]
+    mock_pdf = MagicMock()
+    pdf_service._draw_weight_receipt(mock_pdf, _receipt(designs))
+
+    assert ": 0.27, 0.35 mm" in _cell_texts(mock_pdf)
+
+
+def test_weight_receipt_thickness_falls_back_for_legacy_receipts(pdf_service):
+    """Receipts saved before thk was stored use the JC thickness, else N/A."""
+    legacy_designs = [{'width': 100, 'length': 200, 'actual_weight': 10.0}]
+
+    mock_pdf = MagicMock()
+    pdf_service._draw_weight_receipt(mock_pdf, _receipt(legacy_designs), jc_thickness="0.23 mm")
+    assert ": 0.23 mm" in _cell_texts(mock_pdf)
+
+    mock_pdf = MagicMock()
+    pdf_service._draw_weight_receipt(mock_pdf, _receipt(legacy_designs))
+    assert ": N/A" in _cell_texts(mock_pdf)
+
+
+def test_generate_weight_receipt_pdf_uses_jc_designs_for_thickness(pdf_service):
+    """generate_weight_receipt_pdf builds the JC thickness fallback from designs_json."""
+    pdf_service.sales_order_service.get_sales_orders_for_job_card.return_value = [
+        {'job_card_number': 'JC-1', 'rate_per_kg': 90, 'order_date': None,
+         'designs_json': json.dumps([{'width': 100, 'length': 200, 'thk': 0.23}])},
+        {'job_card_number': 'JC-2', 'rate_per_kg': 90, 'order_date': None, 'designs_json': float('nan')},
+    ]
+    pdf_service.weight_receipt_service.get_job_card_material_type_map.return_value = {}
+
+    mock_pdf = MagicMock()
+    mock_pdf.output.return_value = b"%PDF"
+    with patch('src.pdf_generator.service.pdf_service.FPDF', return_value=mock_pdf):
+        pdf_service.generate_weight_receipt_pdf([_receipt([{'width': 100, 'length': 200, 'actual_weight': 10.0}])])
+
+    pdf_service.sales_order_service.get_sales_orders_for_job_card.assert_called_once_with(include_designs=True)
+    assert ": 0.23 mm" in _cell_texts(mock_pdf)
+
+
+def test_weighed_design_detail_keeps_thickness_from_sales_order_design():
+    """The page builds WeighedDesignDetail from the SO design dict; thk must survive into the JSON."""
+    from src.data_entry.models.weight_receipt_models import WeighedDesignDetail
+
+    so_design = {'width': 100, 'length': 200, 'thk': 0.35, 'type': 'CRGO', 'hole': '3', 'pcs': 10}
+    detail = WeighedDesignDetail(**so_design, actual_weight=10.0)
+    assert detail.model_dump()['thk'] == 0.35
+
+    assert WeighedDesignDetail(width=1, length=1, thk="").thk is None
+    assert WeighedDesignDetail(width=1, length=1, thk="abc").thk is None
+    assert WeighedDesignDetail(width=1, length=1).thk is None

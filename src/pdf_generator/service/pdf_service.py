@@ -1,14 +1,17 @@
 from datetime import datetime
 import io
-from typing import List
+from typing import List, Optional
 import pandas as pd
 import qrcode
 from src.slitting_plan.service.slitting_plan_service import SlittingPlanService
 from src.data_entry.service.sales_order_service import SalesOrderService
 from src.pdf_generator import hole_layout
 from src.data_entry.service.weight_receipt_service import WeightReceiptService
+from src.shared.utils.logger_config import setup_logger
 from fpdf import FPDF
 import json
+
+logger = setup_logger(__name__)
 
 class PDFService:
     def __init__(self, sales_order_service: SalesOrderService):
@@ -650,7 +653,25 @@ class PDFService:
 
         return bytes(pdf.output(dest='S'))
 
-    def _draw_weight_receipt(self, pdf: FPDF, receipt_data: dict, rate: str = 'N/A', po_date=None, material_type: str = None):
+    @staticmethod
+    def _format_thickness(designs) -> Optional[str]:
+        """Formats the distinct design thicknesses as e.g. '0.35 mm' or '0.27, 0.35 mm'.
+
+        Returns None when no design carries a usable thickness.
+        """
+        thicknesses = []
+        for d in designs or []:
+            try:
+                thk = float(d.get('thk'))
+            except (TypeError, ValueError):
+                continue
+            if thk > 0 and thk not in thicknesses:
+                thicknesses.append(thk)
+        if not thicknesses:
+            return None
+        return ", ".join(f"{t:g}" for t in thicknesses) + " mm"
+
+    def _draw_weight_receipt(self, pdf: FPDF, receipt_data: dict, rate: str = 'N/A', po_date=None, material_type: str = None, jc_thickness: str = None):
         """Draws a single Weight Receipt on the current PDF page.
 
         Args:
@@ -659,6 +680,8 @@ class PDFService:
                 row no longer exists).
             material_type: Material type sourced from the flat Sales Order sheet.
                 Falls back to receipt_data['Material'] when missing.
+            jc_thickness: Formatted thickness from the JC's designs. Used only for
+                legacy receipts whose saved designs JSON predates the thk field.
         """
         pdf.add_page()
         pdf.set_auto_page_break(auto=True, margin=15) # Re-enable auto page break for multi-page documents
@@ -684,6 +707,7 @@ class PDFService:
         
         designs = json.loads(receipt_data.get('DesignDetailsWithWeightsJSON', '[]'))
         job_no = designs[0].get('party_job_no', 'N/A') if designs else 'N/A'
+        thk_display = self._format_thickness(designs) or jc_thickness or 'N/A'
 
         # Line 1: Name
         pdf.set_font("Helvetica", 'B', 12)
@@ -713,11 +737,16 @@ class PDFService:
         pdf.set_font("Helvetica", '', 12)
         pdf.cell(0, line_height, f": {job_no}", border='B,R', ln=True)
 
-        # Line 4: Rate
+        # Line 4: Rate and Thk
         pdf.set_font("Helvetica", 'B', 12)
         pdf.cell(20, line_height, "Rate", border='L,B')
         pdf.set_font("Helvetica", '', 12)
-        pdf.cell(0, line_height, f": {rate}", border='B,R', ln=True)
+        pdf.cell(75, line_height, f": {rate}", border='B,R')
+
+        pdf.set_font("Helvetica", 'B', 12)
+        pdf.cell(25, line_height, "Thk", border='B')
+        pdf.set_font("Helvetica", '', 12)
+        pdf.cell(0, line_height, f": {thk_display}", border='B,R', ln=True)
         pdf.ln(10)
         
         # --- Items Table Header ---
@@ -910,9 +939,20 @@ class PDFService:
     def generate_weight_receipt_pdf(self, selected_receipts: List[dict]) -> bytes:
         """Generates a PDF for the selected weight receipts."""
         pdf = FPDF(orientation='P', unit='mm', format='A4')
-        sales_orders = self.sales_order_service.get_sales_orders_for_job_card(include_designs=False)
+        sales_orders = self.sales_order_service.get_sales_orders_for_job_card(include_designs=True)
         sales_order_rates = {so.get('job_card_number'): so.get('rate_per_kg', 'N/A') for so in sales_orders if so.get('job_card_number')}
         sales_order_po_dates = {so.get('job_card_number'): so.get('order_date') for so in sales_orders if so.get('job_card_number')}
+        # Fallback thickness for receipts saved before thk was stored in the receipt's designs JSON.
+        sales_order_thicknesses = {}
+        for so in sales_orders:
+            jc = so.get('job_card_number')
+            designs_json = so.get('designs_json')
+            if not jc or not isinstance(designs_json, str):
+                continue
+            try:
+                sales_order_thicknesses[jc] = self._format_thickness(json.loads(designs_json))
+            except (ValueError, AttributeError):
+                logger.warning(f"Could not parse designs_json for thickness on JC {jc}")
         # Built once per PDF generation; used as a fallback for legacy receipts whose Material column is missing/N/A.
         material_type_map = self.weight_receipt_service.get_job_card_material_type_map()
         for receipt_data in selected_receipts:
@@ -920,5 +960,6 @@ class PDFService:
             rate = sales_order_rates.get(jc, 'N/A')
             po_date = sales_order_po_dates.get(jc)
             material_type = material_type_map.get(str(jc).strip().lower(), '') if jc else ''
-            self._draw_weight_receipt(pdf, receipt_data, rate, po_date=po_date, material_type=material_type)
+            self._draw_weight_receipt(pdf, receipt_data, rate, po_date=po_date, material_type=material_type,
+                                      jc_thickness=sales_order_thicknesses.get(jc))
         return bytes(pdf.output(dest='S'))
