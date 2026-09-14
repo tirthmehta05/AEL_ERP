@@ -138,7 +138,10 @@ class WeightReceiptService:
                 deduction=request.deduction,
             )
 
-            success = self.repository.save_weight_receipt(record.to_list())
+            success = self.repository.save_weight_receipt(
+                record.to_list(),
+                extra_columns=request.qc.to_sheet_values() if request.qc else None,
+            )
             
             if success:
                 logger.info(f"Successfully saved Weight Receipt {request.weight_receipt_number}")

@@ -3,9 +3,11 @@ import pandas as pd
 from datetime import datetime, timedelta
 import json
 import time
+from pydantic import ValidationError
 from pages.shared.utils import get_services
 from src.services import SalesOrderService
 from src.data_entry.models.weight_receipt_models import WeightReceiptRequest, WeighedDesignDetail
+from src.quality.fg_qc import IST, FGQCSignOff, answer_options, checks_for_order_type, exception_checks
 from src.shared.utils.logger_config import setup_logger
 from config import settings
 
@@ -45,6 +47,10 @@ def initialize_wr_session_state():
         st.session_state.wr_is_manual_entry = False
     if 'wr_pending_save' not in st.session_state:
         st.session_state.wr_pending_save = None
+    if 'wr_pending_qc' not in st.session_state:
+        st.session_state.wr_pending_qc = None
+    if 'wr_pending_core_save' not in st.session_state:
+        st.session_state.wr_pending_core_save = False
     if 'wr_scale_type' not in st.session_state:
         st.session_state.wr_scale_type = "Standard"
 
@@ -69,12 +75,112 @@ def _is_rn_series_jc(job_card_number: str) -> bool:
     return str(job_card_number or "").strip().upper().startswith("RN-")
 
 
+def _render_fg_qc_section(order_type, form_key):
+    """
+    Renders the QC checklist for the lot being receipted and returns a
+    complete FGQCSignOff, or None while anything is still missing.
+
+    `form_key` is fresh every time a save dialog opens, so no answer carries
+    over from the previous receipt — every dispatched lot is checked on its own.
+    """
+    st.markdown("#### Quality check for this lot")
+    st.caption("Copy the answers from the checklist signed on the job card for this lot. Nothing is pre-selected.")
+
+    answers = {}
+    for check in checks_for_order_type(order_type):
+        label_col, answer_col = st.columns([3, 2])
+        label_col.markdown(check.label)
+        with answer_col:
+            answers[check.key] = st.radio(
+                check.label,
+                answer_options(check),
+                index=None,
+                horizontal=True,
+                key=f"{form_key}_{check.key}",
+                label_visibility="collapsed",
+            )
+
+    floor_checked_by = st.text_input(
+        "Checked on the floor by",
+        key=f"{form_key}_floor_checked_by",
+        placeholder="Name as signed on the job card",
+    )
+
+    exceptions = exception_checks(order_type, answers)
+    exception_reason = ""
+    exception_responsibility_accepted = False
+    if exceptions:
+        st.error(
+            "**You are about to dispatch with quality issues:** "
+            + ", ".join(check.label for check in exceptions)
+            + ".\n\nThis is dangerous. If you continue, **you are personally responsible for any customer "
+            "complaint on this lot**, and your name is recorded against it. Fix the material before "
+            "dispatch if at all possible.",
+            icon="🚨",
+        )
+        exception_reason = st.text_area("Reason for dispatching with these issues", key=f"{form_key}_exception_reason")
+        exception_responsibility_accepted = st.checkbox(
+            "I understand the risk and accept personal responsibility for dispatching this lot with the issues above.",
+            key=f"{form_key}_exception_responsibility",
+        )
+
+    user_info = st.session_state.get('user_info', {})
+    signer = user_info.get('name') or user_info.get('username') or "the logged-in user"
+    responsibility_accepted = st.checkbox(
+        f"I, {signer}, confirm that I have duly inspected the quality of this lot "
+        "and allow it to be dispatched to the customer.",
+        key=f"{form_key}_declaration",
+    )
+
+    try:
+        return FGQCSignOff(
+            order_type=order_type,
+            answers={key: answer for key, answer in answers.items() if answer},
+            floor_checked_by=floor_checked_by or "",
+            exception_reason=exception_reason or "",
+            signed_by=user_info.get('username', ''),
+            signed_by_name=user_info.get('name', ''),
+            signed_at=datetime.now(IST),
+            responsibility_accepted=responsibility_accepted,
+            exception_responsibility_accepted=exception_responsibility_accepted,
+        )
+    except ValidationError as e:
+        st.caption("To save: " + " ".join(err['msg'].removeprefix("Value error, ") for err in e.errors()))
+        return None
+
+
 @st.dialog("Confirm Weight Receipt Save", width="large")
-def _show_save_confirmation_dialog(candidate_designs, job_card_number, party_name, preview_wr_number=None):
+def _show_core_save_confirmation_dialog(job_card_number, party_name, total_weight, deduction, order_type, qc_form_key):
+    """Building Core counterpart of the save dialog: weight summary plus the QC sign-off."""
+    st.markdown(f"**Job Card:** {job_card_number} &nbsp; | &nbsp; **Party:** {party_name}")
+    summary_cols = st.columns(3)
+    summary_cols[0].metric("Total Weight", f"{total_weight:.2f} kg")
+    summary_cols[1].metric("Deduction", f"{deduction:.2f} kg")
+    summary_cols[2].metric("Net Weight", f"{total_weight - deduction:.2f} kg")
+    st.markdown("---")
+
+    qc_sign_off = _render_fg_qc_section(order_type, qc_form_key)
+
+    confirm_col, cancel_col = st.columns(2)
+    with confirm_col:
+        if st.button("✅ Confirm Save", type="primary", use_container_width=True, disabled=qc_sign_off is None):
+            st.session_state.wr_pending_qc = {"job_card": job_card_number, "sign_off": qc_sign_off}
+            st.session_state.wr_pending_core_save = True
+            st.rerun()
+    with cancel_col:
+        if st.button("❌ Cancel", use_container_width=True):
+            st.session_state.wr_pending_qc = None
+            st.session_state.wr_pending_core_save = False
+            st.rerun()
+
+
+@st.dialog("Confirm Weight Receipt Save", width="large")
+def _show_save_confirmation_dialog(candidate_designs, job_card_number, party_name, order_type, qc_form_key, preview_wr_number=None):
     """
     Shows a modal dialog with all weighed designs for the user to review
-    and optionally deselect before saving. This is the final selection
-    step — the grid checkboxes are only used for weighing.
+    and optionally deselect before saving, followed by the QC sign-off for
+    the lot. This is the final selection step — the grid checkboxes are
+    only used for weighing.
 
     `preview_wr_number` is a best-effort, NON-binding preview of the next
     receipt number. The binding number is still allocated at save time (to
@@ -132,16 +238,21 @@ def _show_save_confirmation_dialog(candidate_designs, job_card_number, party_nam
     summary_cols[0].metric("Total Weight", f"{total_weight:.2f} kg")
     summary_cols[1].metric("Total Deduction", f"{total_deduction:.2f} kg")
     summary_cols[2].metric("Net Weight", f"{net_weight:.2f} kg")
+    st.markdown("---")
+
+    qc_sign_off = _render_fg_qc_section(order_type, qc_form_key)
 
     confirm_col, cancel_col = st.columns(2)
     with confirm_col:
-        if st.button("✅ Confirm Save", type="primary", use_container_width=True, disabled=len(confirmed_indices) == 0):
-            # Store confirmed indices in session state so the main page can proceed
+        if st.button("✅ Confirm Save", type="primary", use_container_width=True, disabled=len(confirmed_indices) == 0 or qc_sign_off is None):
+            # Store confirmed indices and the QC sign-off in session state so the main page can proceed
+            st.session_state.wr_pending_qc = {"job_card": job_card_number, "sign_off": qc_sign_off}
             st.session_state.wr_pending_save = confirmed_indices
             st.rerun()
     with cancel_col:
         if st.button("❌ Cancel", use_container_width=True):
             st.session_state.wr_pending_save = None
+            st.session_state.wr_pending_qc = None
             st.rerun()
 
 
@@ -365,6 +476,9 @@ def render_weight_receipt_form():
                 st.session_state.wr_selected_designs = set()
                 st.session_state.wr_is_manual_entry = False
                 st.session_state.wr_scale_type = "Standard"
+                # A QC sign-off belongs to one job card's lot; never carry a pending one to another job card.
+                st.session_state.wr_pending_qc = None
+                st.session_state.wr_pending_core_save = False
 
                 # Crucial: Clear specific widget keys from session state to prevent StreamlitValueAboveMaxError
                 # and stale values in inputs. We clear up to a reasonable number of designs.
@@ -623,7 +737,8 @@ def render_weight_receipt_form():
 
                                         if total_sets_in_jc > 0:
                                             return (orig_weight / total_sets_in_jc) * current_sets
-                                        return 0.0
+                                        # No cores (loose strips): the grid shows the full design weight as Expected, so split by that
+                                        return orig_weight
                                     else:
                                         return designs[idx].get('weight', 0.0)
 
@@ -697,7 +812,8 @@ def render_weight_receipt_form():
                                         current_sets = st.session_state.wr_design_sets.get(idx, int(draft_sets) if draft_sets is not None else 1)
                                         if total_sets_in_jc > 0:
                                             return (orig_weight / total_sets_in_jc) * current_sets
-                                        return 0.0
+                                        # No cores (loose strips): the grid shows the full design weight as Expected, so split by that
+                                        return orig_weight
                                     else:
                                         return designs[idx].get('weight', 0.0)
 
@@ -797,14 +913,24 @@ def render_weight_receipt_form():
                             candidate_designs,
                             job_card_number=selected_jc_str,
                             party_name=selected_party,
+                            order_type=order_type,
+                            # Fresh widget keys each time, so no QC answer carries over from the last receipt.
+                            qc_form_key=f"wr_qc_{time.time_ns()}",
                             preview_wr_number=preview_wr_number,
                         )
 
                 # --- Step 2: Process confirmed save (triggered by dialog rerun) ---
                 confirmed_indices = st.session_state.get('wr_pending_save')
                 if confirmed_indices is not None:
-                    # Clear the pending flag immediately
+                    # Clear the pending flags immediately
                     st.session_state.wr_pending_save = None
+                    pending_qc = st.session_state.wr_pending_qc
+                    st.session_state.wr_pending_qc = None
+                    # The sign-off must be for this job card's lot, never one left over from another job card.
+                    qc_sign_off = pending_qc["sign_off"] if pending_qc and pending_qc.get("job_card") == selected_jc_str else None
+                    if qc_sign_off is None:
+                        st.error("The quality check was not signed off. Click Save Weight Receipt and complete the checklist.", icon="⚠️")
+                        st.stop()
 
                     # Check for existing save lock
                     current_time = time.time()
@@ -883,7 +1009,8 @@ def render_weight_receipt_form():
                         weight_entry_type="Loose Strips (Manual)" if st.session_state.get('wr_is_manual_entry') else "Loose Strips",
                         total_weight=actual_total_weight,
                         deduction=deduction,
-                        order_type=order_type
+                        order_type=order_type,
+                        qc=qc_sign_off
                     )
 
                     with st.spinner("Saving Weight Receipt..."):
@@ -1028,7 +1155,33 @@ def render_weight_receipt_form():
                         st.toast("Draft saved!", icon="📝")
                         st.rerun()
                 st.markdown("---")
+                # --- Step 1: "Save Weight Receipt" opens the confirmation dialog with the QC checklist ---
                 if st.button("Save Weight Receipt", key="save_wr_button_core"):
+                    if st.session_state.get('wr_total_weight', 0.0) <= 0:
+                        st.error("Please fetch a valid total weight before saving.")
+                    else:
+                        _show_core_save_confirmation_dialog(
+                            job_card_number=selected_jc_str,
+                            party_name=selected_party,
+                            total_weight=st.session_state.wr_total_weight,
+                            deduction=deduction,
+                            order_type=order_type,
+                            # Fresh widget keys each time, so no QC answer carries over from the last receipt.
+                            qc_form_key=f"wr_qc_{time.time_ns()}",
+                        )
+
+                # --- Step 2: Process confirmed save (triggered by dialog rerun) ---
+                if st.session_state.get('wr_pending_core_save'):
+                    # Clear the pending flags immediately
+                    st.session_state.wr_pending_core_save = False
+                    pending_qc = st.session_state.wr_pending_qc
+                    st.session_state.wr_pending_qc = None
+                    # The sign-off must be for this job card's lot, never one left over from another job card.
+                    qc_sign_off = pending_qc["sign_off"] if pending_qc and pending_qc.get("job_card") == selected_jc_str else None
+                    if qc_sign_off is None:
+                        st.error("The quality check was not signed off. Click Save Weight Receipt and complete the checklist.", icon="⚠️")
+                        st.stop()
+
                     # Check for existing save lock
                     current_time = time.time()
                     last_save_time = st.session_state.wr_save_locks.get(selected_jc_str, 0)
@@ -1097,7 +1250,8 @@ def render_weight_receipt_form():
                         weight_entry_type="Building Core (Manual)" if st.session_state.get('wr_is_manual_entry') else "Building Core",
                         total_weight=actual_total_weight,
                         deduction=deduction,
-                        order_type=order_type
+                        order_type=order_type,
+                        qc=qc_sign_off
                     )
                     
                     with st.spinner("Saving Weight Receipt..."):

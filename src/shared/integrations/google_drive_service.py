@@ -7,7 +7,7 @@ Supports both file-based and environment variable credentials
 import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
-from typing import List, Any, Callable
+from typing import List, Any, Callable, Dict
 import os
 import json
 import time
@@ -390,6 +390,85 @@ class GoogleDriveService:
             return False
         except Exception as e:
             logger.error(f"Error ensuring worksheet '{worksheet_name}': {str(e)}")
+            return False
+
+    def append_row_mapped_to_headers(
+        self,
+        spreadsheet_id: str,
+        worksheet_name: str,
+        fixed_headers: List[str],
+        fixed_row: List[Any],
+        extra_columns: Dict[str, Any],
+    ) -> bool:
+        """Appends one row: `fixed_row` in the leading columns, `extra_columns` placed by header name.
+
+        Missing extra headers are added after the last filled header (existing
+        headers never move); a missing or empty worksheet gets `fixed_headers`
+        first. Reads only the header row, through the values API, so a normal save
+        costs 2 reads + 1 write however large the sheet is; the worksheet itself
+        is fetched only when headers have to be written. Writes nothing and
+        returns False if an extra header would land inside the fixed columns.
+        """
+        try:
+            if not self.client:
+                raise Exception("Google Drive client not initialized")
+
+            spreadsheet = self._execute_with_retry(self.client.open_by_key, spreadsheet_id)
+            worksheet = None
+            try:
+                header_values = self._execute_with_retry(
+                    spreadsheet.values_get, gspread.utils.absolute_range_name(worksheet_name, "1:1")
+                )
+                headers = list((header_values.get("values") or [[]])[0])
+            except APIError:
+                # Expected cause: the worksheet doesn't exist, so the range can't be parsed. Create it.
+                # For any other cause add_worksheet fails too, and nothing is written.
+                worksheet = self._execute_with_retry(
+                    spreadsheet.add_worksheet, title=worksheet_name, rows=1,
+                    cols=len(fixed_headers) + len(extra_columns), _idempotent=False,
+                )
+                headers = []
+            while headers and not str(headers[-1]).strip():
+                headers.pop()
+
+            base = headers or list(fixed_headers)
+            new_headers = [] if headers else list(fixed_headers)
+            new_headers += [h for h in extra_columns if h not in base]
+            final_headers = headers + new_headers
+
+            positions = {name: final_headers.index(name) for name in extra_columns}
+            if positions and min(positions.values()) < len(fixed_row):
+                logger.error(f"'{worksheet_name}' header row overlaps the fixed columns; row not appended.")
+                return False
+
+            if new_headers:
+                if worksheet is None:
+                    worksheet = self._execute_with_retry(spreadsheet.worksheet, worksheet_name)
+                if worksheet.col_count < len(final_headers):
+                    self._execute_with_retry(worksheet.add_cols, len(final_headers) - worksheet.col_count, _idempotent=False)
+                start_cell = gspread.utils.rowcol_to_a1(1, len(headers) + 1)
+                # Fixed values to a fixed range: a replay rewrites the same cells, so full retries are safe.
+                self._execute_with_retry(worksheet.update, start_cell, [new_headers], value_input_option='USER_ENTERED')
+                logger.info(f"Added headers {new_headers} to '{worksheet_name}'.")
+
+            row = list(fixed_row)
+            if positions:
+                # None (not "") leaves any in-between columns, e.g. hand-added ones, untouched.
+                row += [None] * (max(positions.values()) + 1 - len(row))
+                for name, position in positions.items():
+                    row[position] = extra_columns[name]
+            # Same request Worksheet.append_rows sends, without fetching the worksheet first.
+            self._execute_with_retry(
+                spreadsheet.values_append, gspread.utils.absolute_range_name(worksheet_name),
+                params={"valueInputOption": "USER_ENTERED"}, body={"values": [row]}, _idempotent=False,
+            )
+            return True
+
+        except APIError as e:
+            logger.error(f"A gspread API error occurred while appending to '{worksheet_name}': {str(e)}")
+            return False
+        except Exception as e:
+            logger.error(f"Error appending data to '{worksheet_name}': {str(e)}")
             return False
 
     def upsert_row(self, spreadsheet_id: str, worksheet_name: str, data: List[Any], key_column_index: int = 0) -> bool:

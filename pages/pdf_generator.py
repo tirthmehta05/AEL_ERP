@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 from pages.shared.utils import get_services
 from src.services import AppServices
+from src.quality.fg_qc import qc_signed_by_line, qc_status_label
 from datetime import datetime, timedelta
 
 # --- Top-level Cached Functions ---
@@ -144,11 +145,12 @@ def render_delivery_challan_tab(services: AppServices):
 
         df = pd.DataFrame(receipts)
         
+        df["QC"] = [qc_status_label(receipt) for receipt in receipts]
         st.dataframe(
             df,
             on_select="rerun",
             selection_mode="multi-row",
-            column_order=["WeightReceiptNumber", "Date", "JobCardNumber"],
+            column_order=["WeightReceiptNumber", "Date", "JobCardNumber", "QC"],
             hide_index=True,
             key="dc_receipt_selection_df"
         )
@@ -158,6 +160,18 @@ def render_delivery_challan_tab(services: AppServices):
 
         if not selected_receipts.empty:
             st.write(f"{len(selected_receipts)} receipt(s) selected.")
+            with_exceptions = selected_receipts[selected_receipts["QC"].str.startswith("Exceptions")]
+            if not with_exceptions.empty:
+                st.warning(
+                    "These receipts were signed off with quality issues. Check before dispatch:\n\n"
+                    + "\n".join(
+                        f"- WR {row['WeightReceiptNumber']} ({row['JobCardNumber']}): {row['QC']}. "
+                        f"Reason: {row.get('QCExceptionReason') or '-'}. "
+                        f"Signed by {row.get('QCSignedByName') or row.get('QCSignedBy')}."
+                        for _, row in with_exceptions.iterrows()
+                    ),
+                    icon="⚠️",
+                )
             if st.button("Generate Delivery Challan", key="generate_delivery_challan_pdf"):
                 
                 # --- Data Transformation Logic ---
@@ -271,7 +285,12 @@ def render_delivery_challan_tab(services: AppServices):
                         },
                         "items": items,
                         "grand_total_weight": grand_total_weight,
-                        "receipts": receipts_df
+                        "receipts": receipts_df,
+                        "qc_signoffs": [
+                            f"WR {row.get('WeightReceiptNumber', '')}: {line}"
+                            for _, row in receipts_df.iterrows()
+                            if (line := qc_signed_by_line(row))
+                        ],
                     }
                     return challan_data
 
@@ -356,11 +375,12 @@ def render_weight_receipt_tab(services: AppServices):
 
         df = pd.DataFrame(receipts)
         
+        df["QC"] = [qc_status_label(receipt) for receipt in receipts]
         st.dataframe(
             df,
             on_select="rerun",
             selection_mode="multi-row",
-            column_order=["WeightReceiptNumber", "Date", "JobCardNumber"],
+            column_order=["WeightReceiptNumber", "Date", "JobCardNumber", "QC"],
             hide_index=True,
             key="wr_receipt_selection_df"
         )
