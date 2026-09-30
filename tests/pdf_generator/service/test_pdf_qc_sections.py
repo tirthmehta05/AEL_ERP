@@ -50,13 +50,17 @@ def _all_text(pdf):
 ])
 def test_job_card_checklist_prints_core_gap_row_only_for_cores(pdf_service, job_card, has_core_row):
     pdf = _pdf(y=60)
-    pdf_service._draw_job_card_qc_checklist(pdf, job_card)
+    module = 'src.pdf_generator.service.pdf_service.qc_icons'
+    with patch(f'{module}.draw_tick') as tick, patch(f'{module}.draw_cross') as cross:
+        pdf_service._draw_job_card_qc_checklist(pdf, job_card)
 
     text = _cell_text(pdf)
     assert "Material grade & thickness as per job card" in text
     assert "Free of rust" in text
     assert ("No gaps in core" in text) is has_core_row
-    assert "Lot 4" in text
+    assert "Lot 5" in text
+    # Lot cells are left blank for pen marks: the tick and cross appear once each, in the legend.
+    assert tick.call_count == 1 and cross.call_count == 1
     pdf.add_page.assert_not_called()
 
 
