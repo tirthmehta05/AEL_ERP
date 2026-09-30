@@ -38,7 +38,7 @@ def test_unknown_check_draws_nothing():
     assert not pdf.method_calls
 
 
-@pytest.mark.parametrize("draw", [qc_icons.draw_tick, qc_icons.draw_cross, qc_icons.draw_dash])
+@pytest.mark.parametrize("draw", [qc_icons.draw_tick, qc_icons.draw_cross])
 def test_answer_marks_stay_inside_their_square(draw):
     pdf = MagicMock()
     draw(pdf, 5, 5, 5)

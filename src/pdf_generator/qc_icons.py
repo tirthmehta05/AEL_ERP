@@ -198,8 +198,3 @@ def draw_cross(pdf, x, y, size):
         c.line(0.15, 0.15, 0.85, 0.85)
         c.line(0.85, 0.15, 0.15, 0.85)
 
-
-def draw_dash(pdf, x, y, size):
-    """'Not applicable' mark, for the hole check on plain strips."""
-    with pdf.local_context(line_width=BOLD, draw_color=0):
-        _Canvas(pdf, x, y, size).line(0.15, 0.5, 0.85, 0.5)
