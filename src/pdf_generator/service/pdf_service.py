@@ -430,7 +430,7 @@ class PDFService:
 
         self._draw_job_card_qc_checklist(pdf, job_card_data)
 
-    QC_LOT_COLUMNS = 4
+    QC_LOT_COLUMNS = 5
 
     def _draw_job_card_qc_checklist(self, pdf: FPDF, job_card_data: dict):
         """Prints the FG quality checklist the floor fills for every dispatch.
@@ -448,7 +448,6 @@ class PDFService:
         header_h = 7
         check_h = 11
         icon_size = 9
-        mark_size = 5
         sign_offs = (("Weight Receipt No. / Date", 7), ("Checked by (name)", 7), ("Signature", 11))
         picture_w = 18
         label_w = 76
@@ -478,13 +477,9 @@ class PDFService:
                 pdf, check.key, row_x + (picture_w - icon_size) / 2, row_y + (check_h - icon_size) / 2, icon_size,
             )
             pdf.cell(label_w, check_h, check.label, border=1)
-            marks = (qc_icons.draw_tick, qc_icons.draw_cross) + ((qc_icons.draw_dash,) if check.allow_na else ())
-            slot_w = lot_w / len(marks)
+            # Lot cells stay empty: the floor pens a tick or a cross into them.
             for lot in range(1, self.QC_LOT_COLUMNS + 1):
-                lot_x = pdf.get_x()
                 pdf.cell(lot_w, check_h, "", border=1, ln=lot == self.QC_LOT_COLUMNS)
-                for i, draw_mark in enumerate(marks):
-                    draw_mark(pdf, lot_x + slot_w * i + (slot_w - mark_size) / 2, row_y + (check_h - mark_size) / 2, mark_size)
 
         pdf.set_font("Helvetica", 'B', 9)
         for label, height in sign_offs:
@@ -493,12 +488,13 @@ class PDFService:
                 pdf.cell(lot_w, height, "", border=1, ln=lot == self.QC_LOT_COLUMNS)
 
     def _draw_qc_legend(self, pdf: FPDF, height: float):
-        """'Circle [tick] = OK, [cross] = not OK', with the marks drawn exactly as in the table."""
+        """'Mark [tick] = OK, [cross] = not OK' — the marks the floor writes into the empty lot cells."""
         mark_size = 4.5
         y = pdf.get_y()
         x = pdf.l_margin
         pdf.set_font("Helvetica", '', 9)
-        for part in ("Circle", qc_icons.draw_tick, "= OK,", qc_icons.draw_cross, "= not OK"):
+        for part in ("Mark", qc_icons.draw_tick, "= OK,", qc_icons.draw_cross,
+                     "= not OK, or write NA where a check does not apply"):
             if callable(part):
                 part(pdf, x, y + (height - mark_size) / 2, mark_size)
                 x += mark_size + 1.5
