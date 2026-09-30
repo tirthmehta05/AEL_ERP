@@ -6,7 +6,9 @@ import qrcode
 from src.slitting_plan.service.slitting_plan_service import SlittingPlanService
 from src.data_entry.service.sales_order_service import SalesOrderService
 from src.pdf_generator import hole_layout
+from src.pdf_generator import qc_icons
 from src.data_entry.service.weight_receipt_service import WeightReceiptService
+from src.quality.fg_qc import checks_for_order_type, is_core_building_job_card, qc_signed_by_line
 from src.shared.utils.logger_config import setup_logger
 from fpdf import FPDF
 import json
@@ -426,6 +428,87 @@ class PDFService:
         else:
             pdf.cell(190, 8, "Pending Coil Assignment", border=1, align='C', ln=True)
 
+        self._draw_job_card_qc_checklist(pdf, job_card_data)
+
+    QC_LOT_COLUMNS = 4
+
+    def _draw_job_card_qc_checklist(self, pdf: FPDF, job_card_data: dict):
+        """Prints the FG quality checklist the floor fills for every dispatch.
+
+        Each lot column matches one weight receipt, where the same checks are
+        signed off in the app.
+        """
+        order_type = "CORE_BUILDING" if is_core_building_job_card(job_card_data) else None
+        checks = checks_for_order_type(order_type)
+        # Sized for easy reading and circling on the floor; moves to a new page rather than shrinking.
+        # A picture per check and tick/cross marks per lot, for staff who don't read the labels.
+        gap = 8
+        title_h = 8
+        legend_h = 8
+        header_h = 7
+        check_h = 11
+        icon_size = 9
+        mark_size = 5
+        sign_offs = (("Weight Receipt No. / Date", 7), ("Checked by (name)", 7), ("Signature", 11))
+        picture_w = 18
+        label_w = 76
+        lot_w = (190 - picture_w - label_w) / self.QC_LOT_COLUMNS
+        block_h = title_h + legend_h + header_h + check_h * len(checks) + sum(h for _, h in sign_offs)
+
+        if pdf.get_y() + gap + block_h > pdf.h - pdf.b_margin:
+            pdf.add_page()
+        else:
+            pdf.ln(gap)
+
+        pdf.set_font("Helvetica", 'B', 10)
+        pdf.cell(0, title_h, "Quality Check - fill one lot column for every dispatch (Weight Receipt)", ln=True)
+        self._draw_qc_legend(pdf, legend_h)
+
+        pdf.set_font("Helvetica", 'B', 9)
+        pdf.set_fill_color(230, 230, 230)
+        pdf.cell(picture_w + label_w, header_h, "Check", border=1, fill=True, align='L')
+        for lot in range(1, self.QC_LOT_COLUMNS + 1):
+            pdf.cell(lot_w, header_h, f"Lot {lot}", border=1, fill=True, align='C', ln=lot == self.QC_LOT_COLUMNS)
+
+        pdf.set_font("Helvetica", '', 9)
+        for check in checks:
+            row_x, row_y = pdf.get_x(), pdf.get_y()
+            pdf.cell(picture_w, check_h, "", border=1)
+            qc_icons.draw_check_icon(
+                pdf, check.key, row_x + (picture_w - icon_size) / 2, row_y + (check_h - icon_size) / 2, icon_size,
+            )
+            pdf.cell(label_w, check_h, check.label, border=1)
+            marks = (qc_icons.draw_tick, qc_icons.draw_cross) + ((qc_icons.draw_dash,) if check.allow_na else ())
+            slot_w = lot_w / len(marks)
+            for lot in range(1, self.QC_LOT_COLUMNS + 1):
+                lot_x = pdf.get_x()
+                pdf.cell(lot_w, check_h, "", border=1, ln=lot == self.QC_LOT_COLUMNS)
+                for i, draw_mark in enumerate(marks):
+                    draw_mark(pdf, lot_x + slot_w * i + (slot_w - mark_size) / 2, row_y + (check_h - mark_size) / 2, mark_size)
+
+        pdf.set_font("Helvetica", 'B', 9)
+        for label, height in sign_offs:
+            pdf.cell(picture_w + label_w, height, label, border=1)
+            for lot in range(1, self.QC_LOT_COLUMNS + 1):
+                pdf.cell(lot_w, height, "", border=1, ln=lot == self.QC_LOT_COLUMNS)
+
+    def _draw_qc_legend(self, pdf: FPDF, height: float):
+        """'Circle [tick] = OK, [cross] = not OK', with the marks drawn exactly as in the table."""
+        mark_size = 4.5
+        y = pdf.get_y()
+        x = pdf.l_margin
+        pdf.set_font("Helvetica", '', 9)
+        for part in ("Circle", qc_icons.draw_tick, "= OK,", qc_icons.draw_cross, "= not OK"):
+            if callable(part):
+                part(pdf, x, y + (height - mark_size) / 2, mark_size)
+                x += mark_size + 1.5
+            else:
+                width = pdf.get_string_width(part) + 2
+                pdf.set_xy(x, y)
+                pdf.cell(width, height, part)
+                x += width
+        pdf.set_xy(pdf.l_margin, y + height)
+
     def generate_job_card_pdf(self, selected_job_cards: List[dict]) -> bytes:
         """Generates a PDF for the selected job cards.""" 
         pdf = FPDF(orientation='P', unit='mm', format='A4')
@@ -620,6 +703,16 @@ class PDFService:
         pdf.set_xy(current_x, current_y)
         pdf.cell(half_page_width - 4, 5, "Note:")
         current_y = pdf.get_y() + 5 # Advance y by height of "Note:"
+        # The 5-line space under "Note:" carries the QC sign-offs of the receipts on this challan.
+        qc_signoffs = data.get('qc_signoffs') or []
+        if qc_signoffs:
+            shown = qc_signoffs[:3]
+            if len(qc_signoffs) > 3:
+                shown.append(f"+ {len(qc_signoffs) - 3} more receipts QC signed off")
+            pdf.set_font("Helvetica", '', 7)
+            pdf.set_xy(current_x, current_y)
+            pdf.multi_cell(half_page_width - 4, 3.5, "\n".join(shown))
+            pdf.set_font("Helvetica", '', 9)
         current_y += (5 * 5) # 5 lines space (5mm per line)
 
         # "E. & O.E."
@@ -921,7 +1014,14 @@ class PDFService:
         # Line 2: Removed as it's now in the table footer
         # pdf.cell(col_width, line_height, f"Deduction : {deduction:.2f}", border=0)
         # pdf.cell(col_width, line_height, f"Net : {net_weight:.2f}", border=0, ln=True)
-        pdf.ln(15) # Increased spacing
+        qc_line = qc_signed_by_line(receipt_data)
+        if qc_line:
+            pdf.set_font("Helvetica", '', 10)
+            pdf.cell(0, 6, qc_line, ln=True)
+            pdf.set_font("Helvetica", '', 12)
+            pdf.ln(9)
+        else:
+            pdf.ln(15) # Increased spacing
 
         # --- Signatures and Timestamps ---
         pdf.cell(col_width, line_height, "Prepared By", border=0)

@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field, field_validator
 from datetime import date
 from typing import List, Dict, Optional, Literal
+from src.quality.fg_qc import FGQCSignOff
 
 class WeighedDesignDetail(BaseModel):
     """Model for a single design detail with its actual weight."""
@@ -38,6 +39,7 @@ class WeightReceiptRequest(BaseModel):
     total_weight: Optional[float] = None
     deduction: float = 0.0
     order_type: Optional[Literal["CORE_BUILDING", "LOOSE_STRIPS", "EI_READY"]] = None
+    qc: Optional[FGQCSignOff] = None # QC sign-off for this dispatched lot, saved in the same sheet row
 
 class WeightReceiptRecord(BaseModel):
     """Record model for Weight Receipt data."""
