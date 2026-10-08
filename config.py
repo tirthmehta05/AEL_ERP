@@ -35,6 +35,21 @@ class SlittingPlanSettings(BaseModel):
     validation_weight_tolerance: float = Field(default=0.01)
     slitters: list[str] = Field(default_factory=lambda: ["AEL Pune", "TAIIN"])
 
+class SalesOrderSettings(BaseModel):
+    # Dropdown values for the Sales Order form. Override any of these in a
+    # [sales_order] section of secrets.toml to add an option without a deploy.
+    # Hole sizes already used on past orders are merged in automatically.
+    hole_sizes: list[int] = Field(default_factory=lambda: [13, 16])
+    default_hole_size: int = Field(default=16)
+    hole_types: list[str] = Field(default_factory=lambda: [
+        "Plain", "Centre", "Both Side", "Side",
+        "3-Hole", "4-Hole", "5-Hole",
+        "Daimond", "V-Noch",
+    ])
+    material_types: list[str] = Field(default_factory=lambda: [
+        "CR COIL", "CRGO EI", "CRNO", "CRNO COIL", "CRNO EI", "CRNO EI TRD", "CRNO TL",
+    ])
+
 class WeightReceiptSettings(BaseModel):
     manual_entry_authorized_emails: list[str] = Field(default_factory=list)
 
@@ -46,6 +61,7 @@ class Settings(BaseModel):
     constants: ConstantsSettings
     slitting_plan: SlittingPlanSettings
     weight_receipt: WeightReceiptSettings
+    sales_order: SalesOrderSettings = Field(default_factory=SalesOrderSettings)
 
 # Load settings from st.secrets
 def load_settings() -> Settings:
@@ -64,6 +80,7 @@ def load_settings() -> Settings:
         constants=ConstantsSettings(**st.secrets.get("constants", {})),
         slitting_plan=SlittingPlanSettings(**st.secrets.get("slitting_plan", {})),
         weight_receipt=WeightReceiptSettings(**st.secrets.get("weight_receipt", {})),
+        sales_order=SalesOrderSettings(**st.secrets.get("sales_order", {})),
     )
 
 settings = load_settings()
