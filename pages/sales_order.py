@@ -19,12 +19,8 @@ CUSTOM_HOLE_LABEL = "Custom count..."
 
 # Shortcuts only. The job card PDF draws any "<n>-Hole" value, so a count that
 # is not listed here still renders — this list is what people reach for most.
-HOLE_OPTIONS = [
-    "Plain", "Centre", "Both Side", "Side",
-    "3-Hole", "4-Hole", "5-Hole",
-    "Daimond", "V-Noch",
-    CUSTOM_HOLE_LABEL,
-]
+# Edit [sales_order] hole_types in secrets.toml to change it.
+HOLE_OPTIONS = [*settings.sales_order.hole_types, CUSTOM_HOLE_LABEL]
 
 
 def _resolve_hole(selection_key: str) -> str:
@@ -217,7 +213,7 @@ def initialize_session_state():
         st.session_state.ready_weight = 0.0
 
 # Define material type options globally for reuse
-material_type_options = ["CR COIL", "CRGO EI", "CRNO", "CRNO COIL", "CRNO EI", "CRNO EI TRD", "CRNO TL"]
+material_type_options = settings.sales_order.material_types
 
 def render_header_fields(dropdown_data):
     """Renders the main header fields for the sales order form."""
@@ -231,8 +227,9 @@ def render_header_fields(dropdown_data):
     with col2:
         st.date_input("Delivery Date", key="so_delivery_date")
         st.number_input("Rate (per Kg)", min_value=0.0, step=0.01, format="%.2f", key="so_rate_per_kg")
-        default_hole_size = 16
-        hole_size_options = dropdown_data.hole_sizes
+        default_hole_size = settings.sales_order.default_hole_size
+        # Configured sizes plus any size already used on a past order.
+        hole_size_options = sorted(set(settings.sales_order.hole_sizes) | set(dropdown_data.hole_sizes))
         default_index = hole_size_options.index(default_hole_size) if default_hole_size in hole_size_options else 0
         st.selectbox("Hole Size (mm)", options=hole_size_options, index=default_index, key="so_hole_size")
         st.selectbox("Type", options=material_type_options, key="so_type", accept_new_options=True)
@@ -580,7 +577,6 @@ def render_full_coil_sale_form(service: SalesOrderService, dropdown_data):
         st.date_input("Order Entry Date", key="fcs_order_date")
         st.selectbox("Party Name", options=dropdown_data.all_party_names, index=None, placeholder="Select a Party", key="fcs_party_name", accept_new_options=True)
         
-        material_type_options = ["CR COIL", "CRGO EI", "CRNO", "CRNO COIL", "CRNO EI", "CRNO EI TRD", "CRNO TL"]
         st.selectbox("Material Type", options=material_type_options, index=0, key="fcs_material_type", accept_new_options=True)
         
         st.checkbox("Enter Job Card Manually", key="fcs_manual_job_card")
