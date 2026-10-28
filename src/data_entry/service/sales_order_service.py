@@ -9,6 +9,7 @@ from src.data_entry.models.rm_used_models import RMUsedRequest
 from config import settings
 
 from datetime import date, datetime
+import threading
 
 import json
 import pandas as pd
@@ -26,6 +27,10 @@ class SalesOrderService:
     }
     DEFAULT_PREFIX = "RM-" # Fallback as per user's request
 
+    # Streamlit serves every browser session from one process, so a process-wide
+    # lock is enough to stop two concurrent saves allocating the same job card.
+    _job_card_lock = threading.Lock()
+
     def _get_prefix_from_material_type(self, material_type: str) -> str:
         """Helper to get the job card prefix based on material type."""
         normalized_type = material_type.strip().upper()
@@ -40,41 +45,31 @@ class SalesOrderService:
         self.pa_tenant_id = pa_tenant_id
 
     def generate_sequential_job_card_number(self, material_type: str) -> str:
-        """Generates the next sequential Job Card number based on the material type prefix."""
+        """Generates the next sequential Job Card number based on the material type prefix.
+
+        The highest number is taken across both the flat 'Sales Order' sheet and
+        'Sales Order-JC'. The latter is written first when saving, so including it
+        shrinks the window in which a just-allocated number is not yet visible.
+        A failed sheet read raises instead of falling back to a seed/timestamp
+        number, which would either duplicate an existing job card or poison the
+        max for every later order.
+        """
         prefix = self._get_prefix_from_material_type(material_type)
-        # Define a default starting number if no previous numbers are found.
-        start_number = 1
+        sources = (("Sales Order", "Job Card"), ("Sales Order-JC", "job_card_number"))
 
-        try:
-            df = self.google_service.get_worksheet_data(self.spreadsheet_id, "Sales Order", header_row=1)
-            
-            # Handle empty or invalid DataFrame
-            if df.empty or 'Job Card' not in df.columns:
-                return f"{prefix}{start_number}"
-            
-            # Ensure the column is of string type to use .str accessor
-            df['Job Card'] = df['Job Card'].astype(str)
-
-            # Filter job card numbers for the given prefix
-            jc_series = df['Job Card'][df['Job Card'].str.startswith(prefix, na=False)]
-
-            if jc_series.empty:
-                return f"{prefix}{start_number}"
-
-            # Extract numbers, coerce errors to NaN, then find max.
-            numeric_parts = pd.to_numeric(jc_series.str.split('-').str.get(1), errors='coerce')
-            
-            # If all are NaN after coercion (e.g., "RM-ABC"), max() would be NaN.
-            if numeric_parts.isnull().all():
-                return f"{prefix}{start_number}"
-
-            max_num = numeric_parts.max()
-            next_num = int(max_num) + 1
-            return f"{prefix}{next_num}"
-        except Exception as e:
-            logger.error(f"Error generating job card number: {str(e)}")
-            # Fallback to a timestamp-based format to ensure uniqueness and avoid errors.
-            return f"{prefix}{datetime.now().strftime('%y%m%d%H%M%S')}"
+        max_num = 0
+        for worksheet_name, column in sources:
+            df = self.google_service.get_worksheet_data(
+                self.spreadsheet_id, worksheet_name, header_row=1, raise_on_error=True
+            )
+            if df.empty or column not in df.columns:
+                continue
+            cards = df[column].astype(str).str.strip()
+            cards = cards[cards.str.startswith(prefix, na=False)]
+            numbers = pd.to_numeric(cards.str[len(prefix):], errors="coerce").dropna()
+            if not numbers.empty:
+                max_num = max(max_num, int(numbers.max()))
+        return f"{prefix}{max_num + 1}"
 
     def get_dropdown_data(self) -> SalesOrderDropdownData:
         """Fetches dropdown data for the Sales Order form."""
@@ -124,7 +119,15 @@ class SalesOrderService:
             return SalesOrderDropdownData()
 
     def save_sales_order(self, request: SalesOrderRequest) -> bool:
-        """Saves a new sales order entry, determines child flow status, and saves to sheets."""
+        """Saves a new sales order entry, determines child flow status, and saves to sheets.
+
+        The lock is held from job card allocation until the rows are written, so a
+        concurrent save cannot read the same max number before this one lands.
+        """
+        with self._job_card_lock:
+            return self._save_sales_order_locked(request)
+
+    def _save_sales_order_locked(self, request: SalesOrderRequest) -> bool:
         try:
             # Determine if the order is for a "Ready" item
             is_ready_order = False
